@@ -1,0 +1,55 @@
+graph TD
+    subgraph Frontend
+        TUI[Terminal UI]
+        TMUI[Telemetry UI]
+        UIUI[UI Controls]
+    end
+    
+    subgraph MessageBus
+        MB[Message Bus]
+    end
+    
+    subgraph Sessions
+        SSM[SSH Sessions]
+        TMS[Telemetry Sessions]
+        UIS[UI State]
+        FS[Future Sessions]
+    end
+    
+    subgraph Backend
+        SSHM[SSH Manager]
+        TelM[Telemetry Manager]
+        STM[State Manager]
+    end
+    
+    %% Frontend to Message Bus
+    TUI -- "session_id: ssh1<br>type: terminal<br>action: data" --> MB
+    TMUI -- "session_id: telemetry<br>type: telemetry<br>action: connect" --> MB
+    UIUI -- "session_id: ui_state<br>type: system<br>action: set_theme" --> MB
+    
+    %% Message Bus to Sessions
+    MB --> SSM
+    MB --> TMS
+    MB --> UIS
+    MB --> FS
+    
+    %% Sessions to Backend
+    SSM --> SSHM
+    TMS --> TelM
+    UIS --> STM
+    
+    %% Backend connections
+    SSHM -- "SSH Protocol" --> SSH[SSH Servers]
+    TelM -- "Data Collection" --> DS[Data Sources]
+    
+    classDef frontend fill:#bbf,stroke:#333,stroke-width:2px;
+    classDef bus fill:#f9f,stroke:#333,stroke-width:2px;
+    classDef session fill:#bfb,stroke:#333,stroke-width:2px;
+    classDef backend fill:#fbb,stroke:#333,stroke-width:2px;
+    classDef external fill:#ddd,stroke:#333,stroke-width:1px;
+    
+    class TUI,TMUI,UIUI frontend;
+    class MB bus;
+    class SSM,TMS,UIS,FS session;
+    class SSHM,TelM,STM backend;
+    class SSH,DS external;

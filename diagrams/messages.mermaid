@@ -1,0 +1,31 @@
+graph TD
+    subgraph VS_Code_Extension
+        SM[SessionManager] -- "UUID, Credentials" --> WM[WebviewManager]
+        WM -- "UUID, Connection Config" --> SSHM[SSHManager]
+        SSHM -- "Format Output" --> UI[Terminal UI]
+        UI -- "User Input" --> SSHM
+    end
+    
+    subgraph SSH_Connection
+        SSHM -- "Connect" --> SSH[SSH Server]
+        SSH -- "Shell Output" --> SSHM
+        SSHM -- "Shell Input" --> SSH
+    end
+    
+    subgraph Data_Storage
+        SM -- "Load/Save" --> YAML[Sessions YAML]
+        SM -- "Auth" --> KC[Keychain/Credentials]
+    end
+    
+    UI -- "init" --> WM
+    WM -- "connect" --> SSHM
+    
+    classDef manager fill:#f9f,stroke:#333,stroke-width:2px;
+    classDef ui fill:#bbf,stroke:#333,stroke-width:2px;
+    classDef storage fill:#bfb,stroke:#333,stroke-width:2px;
+    classDef server fill:#fbb,stroke:#333,stroke-width:2px;
+    
+    class SM,WM,SSHM manager;
+    class UI ui;
+    class YAML,KC storage;
+    class SSH server;

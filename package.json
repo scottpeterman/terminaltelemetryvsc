@@ -1,0 +1,167 @@
+{
+  "name": "terminal-telemetry",
+  "displayName": "Terminal Telemetry",
+  "description": "VS Code extension for SSH terminal and telemetry visualization",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.60.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "SSH Terminal",
+      "properties": {
+        "sshTerminal.sessionsFilePath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the YAML file containing SSH session information"
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "terminal-telemetry.showHelp",
+        "title": "Terminal Telemetry Help",
+        "icon": "$(question)"
+      },
+      {
+        "command": "terminal-telemetry.searchSessions",
+        "title": "Search Sessions",
+        "icon": "$(search)"
+      },
+      {
+        "command": "terminal-telemetry.showWelcome",
+        "title": "Terminal Telemetry: Show Welcome Page"
+      },
+      {
+        "command": "terminal-telemetry.selectSessionsFile",
+        "title": "Select Sessions File",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "terminal-telemetry.refreshSessions",
+        "title": "Refresh Sessions",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "terminal-telemetry.addSession",
+        "title": "Add SSH Session",
+        "icon": "$(add)"
+      },
+      {
+        "command": "terminal-telemetry.connectSession",
+        "title": "Connect Session",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "terminal-telemetry.disconnectSession",
+        "title": "Disconnect Session",
+        "icon": "$(debug-disconnect)"
+      },
+      {
+        "command": "terminal-telemetry.deleteSession",
+        "title": "Delete Session",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "terminal-telemetry.openTelemetryView",
+        "title": "Open Telemetry Dashboard",
+        "icon": "$(graph)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "terminal-telemetry",
+          "title": "Terminal Telemetry",
+          "icon": "$(terminal)"
+        }
+      ]
+    },
+    "views": {
+      "terminal-telemetry": [
+        {
+          "id": "terminalTelemetrySessions",
+          "name": "SSH Sessions"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "terminal-telemetry.searchSessions",
+          "when": "view == terminalTelemetrySessions",
+          "group": "navigation"
+        },
+        {
+          "command": "terminal-telemetry.showHelp",
+          "when": "view == terminalTelemetrySessions", 
+          "group": "navigation"
+        },
+        {
+          "command": "terminal-telemetry.refreshSessions",
+          "when": "view == terminalTelemetrySessions",
+          "group": "navigation"
+        },
+        {
+          "command": "terminal-telemetry.addSession",
+          "when": "view == terminalTelemetrySessions",
+          "group": "navigation"
+        },
+        {
+          "command": "terminal-telemetry.selectSessionsFile",
+          "when": "view == terminalTelemetrySessions",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "terminal-telemetry.connectSession",
+          "when": "view == terminalTelemetrySessions && viewItem == disconnectedSession",
+          "group": "inline"
+        },
+        {
+          "command": "terminal-telemetry.disconnectSession",
+          "when": "view == terminalTelemetrySessions && viewItem == connectedSession",
+          "group": "inline"
+        },
+        {
+          "command": "terminal-telemetry.openTelemetryView",
+          "when": "view == terminalTelemetrySessions && viewItem == connectedSession",
+          "group": "inline"
+        },
+        {
+          "command": "terminal-telemetry.deleteSession",
+          "when": "view == terminalTelemetrySessions",
+          "group": "inline"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^16.11.7",
+    "@types/vscode": "^1.60.0",
+    "@typescript-eslint/eslint-plugin": "^4.31.1",
+    "@typescript-eslint/parser": "^4.31.1",
+    "eslint": "^7.32.0",
+    "typescript": "^4.4.3"
+  },
+  "dependencies": {
+    "@types/ssh2": "^1.15.5",
+    "@vscode/webview-ui-toolkit": "^1.2.2",
+    "js-yaml": "^4.1.0",
+    "ssh2": "^1.16.0"
+  }
+}

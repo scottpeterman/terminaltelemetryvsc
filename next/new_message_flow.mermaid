@@ -1,0 +1,49 @@
+sequenceDiagram
+    participant User
+    participant WebView as Frontend WebView
+    participant MBus as Message Bus
+    participant SSess as SSH Session
+    participant TSess as Telemetry Session
+    participant USess as UI State Session
+    participant SSH as SSH Server
+    
+    Note over WebView,SSH: Unified messaging across all interaction types
+    
+    User->>WebView: Open terminal
+    WebView->>MBus: {session_id: "ui_state", type: "system", action: "create_panel"}
+    MBus->>USess: Forward message
+    USess->>WebView: Create panel
+    
+    User->>WebView: Connect to SSH
+    WebView->>MBus: {session_id: "ssh1", type: "terminal", action: "connect", payload: {config}}
+    MBus->>SSess: Forward message
+    SSess->>SSH: Establish connection
+    SSH-->>SSess: Connection established
+    SSess->>MBus: {session_id: "ssh1", type: "terminal", action: "status", payload: {status: "connected"}}
+    MBus->>WebView: Forward status update
+    
+    par Terminal Session
+        User->>WebView: Type "ls -la"
+        WebView->>MBus: {session_id: "ssh1", type: "terminal", action: "data", payload: {text: "ls -la"}}
+        MBus->>SSess: Forward input
+        SSess->>SSH: Send command
+        SSH-->>SSess: Return output
+        SSess->>MBus: {session_id: "ssh1", type: "terminal", action: "data", payload: {text: "file1 file2..."}}
+        MBus->>WebView: Display output
+    and Telemetry Collection
+        TSess->>MBus: {session_id: "telemetry", type: "telemetry", action: "telemetry_update", payload: {cpu: 24.5, mem: 68.9}}
+        MBus->>WebView: Update metrics display
+    end
+    
+    User->>WebView: Change theme
+    WebView->>MBus: {session_id: "ui_state", type: "system", action: "set_theme", payload: {theme: "dark"}}
+    MBus->>USess: Forward message
+    USess->>MBus: {session_id: "ui_state", type: "system", action: "theme_changed", payload: {theme: "dark"}}
+    MBus->>WebView: Apply theme change
+    
+    User->>WebView: Disconnect
+    WebView->>MBus: {session_id: "ssh1", type: "terminal", action: "disconnect"}
+    MBus->>SSess: Forward message
+    SSess->>SSH: Close connection
+    SSess->>MBus: {session_id: "ssh1", type: "terminal", action: "status", payload: {status: "disconnected"}}
+    MBus->>WebView: Update UI

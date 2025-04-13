@@ -1,0 +1,46 @@
+sequenceDiagram
+    participant User
+    participant TreeView
+    participant SM as SessionManager
+    participant WM as WebviewManager
+    participant TUI as Terminal UI
+    participant SSHM as SSHManager
+    participant SSH as SSH Server
+    
+    User->>TreeView: Click "Connect"
+    TreeView->>SM: connectSession(UUID)
+    SM->>SM: Retrieve credentials
+    SM->>WM: openTerminalWithSSH(UUID, config)
+    WM->>WM: Create panel
+    WM->>SSHM: Create(UUID)
+    WM->>TUI: Load HTML + terminal.js
+    
+    TUI->>TUI: Initialize xterm.js
+    TUI->>WM: message {type: 'init', dimensions}
+    WM->>SSHM: message {type: 'init', dimensions}
+    WM->>SSHM: message {type: 'connect', config}
+    
+    SSHM->>TUI: message {type: 'connectionStatus', status: 'connecting'}
+    SSHM->>SSH: ssh2.connect(config)
+    SSH-->>SSHM: Connected
+    SSHM->>TUI: message {type: 'connectionStatus', status: 'connected'}
+    SSHM->>SSH: openShell(dimensions)
+    SSH-->>SSHM: Shell started
+    
+    loop Active Session
+        User->>TUI: Type input
+        TUI->>WM: message {type: 'input', data}
+        WM->>SSHM: message {type: 'input', data}
+        SSHM->>SSH: Write data
+        SSH-->>SSHM: Output data
+        SSHM->>WM: message {type: 'output', data}
+        WM->>TUI: message {type: 'output', data}
+        TUI->>User: Display output
+    end
+    
+    User->>TUI: Close panel or disconnect
+    TUI->>WM: message {type: 'disconnect'}
+    WM->>SSHM: message {type: 'disconnect'}
+    SSHM->>SSH: End connection
+    SSHM->>TUI: message {type: 'connectionStatus', status: 'disconnected'}
+    SSHM->>SSHM: Cleanup resources
