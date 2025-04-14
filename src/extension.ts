@@ -3,11 +3,15 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import { v4 as uuidv4 } from './uuid';
+import * as yaml from 'js-yaml';
+import * as os from 'os';
 
 import { SessionTreeProvider, FolderTreeItem, SessionTreeItem } from './sessionTree';
 import { WebviewManager } from './webviewManager';
 import { SessionManager } from './sessionManager';
 import { initLogger } from './sessionLogger';
+import { SessionEditorProvider } from './sessionEditor';
+
 
 // This method is called when your extension is activated
 export function activate(context: vscode.ExtensionContext) {
@@ -58,6 +62,123 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
     
+context.subscriptions.push(
+    vscode.commands.registerCommand('terminal-telemetry.createSessionsFile', async () => {
+        // Get workspace folder or user home directory
+        let targetPath = '';
+        if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+            targetPath = vscode.workspace.workspaceFolders[0].uri.fsPath;
+        } else {
+            targetPath = os.homedir();
+        }
+        
+        // Ask for file name
+        const defaultFileName = 'ssh-sessions.yaml';
+        const fileName = await vscode.window.showInputBox({
+            prompt: 'Enter name for the new sessions file',
+            value: defaultFileName
+        });
+        
+        if (!fileName) {
+            return; // User cancelled
+        }
+        
+        // Create full path
+        const fullPath = path.join(targetPath, fileName);
+        
+        // Check if file already exists
+        if (fs.existsSync(fullPath)) {
+            const overwrite = await vscode.window.showWarningMessage(
+                `File ${fileName} already exists. Overwrite?`,
+                'Yes', 'No'
+            );
+            
+            if (overwrite !== 'Yes') {
+                return; // User cancelled
+            }
+        }
+        
+        // Create default content
+        const defaultContent = [
+            {
+                folder_name: 'Default',
+                sessions: [
+                    {
+                        DeviceType: 'Linux',
+                        display_name: 'Example Server',
+                        host: 'example.com',
+                        port: '22',
+                        credsid: '1',
+                        Model: 'Dell Server',
+                        Vendor: 'Dell'
+                    }
+                ]
+            }
+        ];
+        
+        // Write to file
+        fs.writeFileSync(fullPath, yaml.dump(defaultContent), 'utf8');
+        
+        // Open file in the custom editor
+        const uri = vscode.Uri.file(fullPath);
+        vscode.commands.executeCommand('vscode.openWith', uri, SessionEditorProvider.viewType);
+        
+        // Ask if user wants to set this as the active sessions file
+        const setAsActive = await vscode.window.showInformationMessage(
+            `File ${fileName} created. Set as active sessions file?`,
+            'Yes', 'No'
+        );
+        
+        if (setAsActive === 'Yes') {
+            // Update the config
+            const config = vscode.workspace.getConfiguration('sshTerminal');
+            
+            if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+                // We're in a workspace, update workspace settings
+                await config.update('sessionsFilePath', fullPath, vscode.ConfigurationTarget.Workspace);
+            } else {
+                // No workspace, update user settings
+                await config.update('sessionsFilePath', fullPath, vscode.ConfigurationTarget.Global);
+            }
+            
+            // Load the sessions
+            sessionManager.loadSessionsFromFile(fullPath);
+            sessionTreeProvider.refresh();
+            
+            vscode.window.showInformationMessage('Sessions file has been set as active.');
+        }
+    })
+);
+
+// 4. Add a command to edit the current sessions file
+context.subscriptions.push(
+    vscode.commands.registerCommand('terminal-telemetry.editSessionsFile', async () => {
+        // Get the current sessions file path
+        const config = vscode.workspace.getConfiguration('sshTerminal');
+        const sessionsFilePath = config.get<string>('sessionsFilePath', '');
+        
+        if (!sessionsFilePath || !fs.existsSync(sessionsFilePath)) {
+            const create = await vscode.window.showInformationMessage(
+                'No active sessions file found. Create a new one?',
+                'Yes', 'No'
+            );
+            
+            if (create === 'Yes') {
+                vscode.commands.executeCommand('terminal-telemetry.createSessionsFile');
+            }
+            return;
+        }
+        
+        // Open the file with the custom editor
+        const uri = vscode.Uri.file(sessionsFilePath);
+        vscode.commands.executeCommand('vscode.openWith', uri, SessionEditorProvider.viewType);
+    })
+);
+    
+    context.subscriptions.push(
+        SessionEditorProvider.register(context, sessionManager)
+    );
+
     // Create webview manager
     const webviewManager = new WebviewManager(context, sessionManager);
 
@@ -431,7 +552,7 @@ function showWelcomePage(context: vscode.ExtensionContext) {
     // Create and show a new webview panel
     const panel = vscode.window.createWebviewPanel(
       'terminalTelemetryWelcome', // Unique ID
-      'Welcome to Terminal Telemetry', // Title displayed in the tab
+      'Welcome to Terminal Telemetry for VS Code', // Title displayed in the tab
       vscode.ViewColumn.One, // Open in the first column
       {
         enableScripts: true, // Enable JavaScript in the webview
@@ -448,12 +569,12 @@ panel.webview.onDidReceiveMessage(
         case 'selectSessionsFile':
           vscode.commands.executeCommand('terminal-telemetry.selectSessionsFile');
           return;
-        case 'addSession':
-          vscode.commands.executeCommand('terminal-telemetry.addSession');
-          return;
+          case 'createSessionsFile':
+            vscode.commands.executeCommand('terminal-telemetry.createSessionsFile');
+            return;
         case 'showDocs':
           // Open documentation or README
-          vscode.env.openExternal(vscode.Uri.parse('https://your-docs-url.com'));
+          vscode.env.openExternal(vscode.Uri.parse('https://github.com/scottpeterman/terminaltelemetryvsc'));
           return;
       }
     },
@@ -466,15 +587,16 @@ panel.webview.onDidReceiveMessage(
   function getWelcomeHtml(webview: vscode.Webview, context: vscode.ExtensionContext): string {
     // Get path to logo image or any other resources
     const logoUri = webview.asWebviewUri(
-      vscode.Uri.file(path.join(context.extensionPath, 'media', 'logo.png'))
-    );
+        vscode.Uri.joinPath(context.extensionUri, 'media', 'logo.jpg')
+      );
+      
   
     return `<!DOCTYPE html>
     <html lang="en">
     <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Welcome to Terminal Telemetry</title>
+      <title>Welcome to Terminal Telemetry for VS Code</title>
       <style>
         body {
           font-family: var(--vscode-font-family);
@@ -522,13 +644,14 @@ panel.webview.onDidReceiveMessage(
     </head>
     <body>
       <img src="${logoUri}" alt="Terminal Telemetry Logo" class="logo">
-      <h1>Welcome to Terminal Telemetry</h1>
+      <h1>Welcome to Terminal Telemetry for VS Code</h1>
       
       <div class="card">
         <h2>Getting Started</h2>
         <p>Terminal Telemetry provides a powerful interface for managing SSH connections and capturing terminal sessions.</p>
         <button class="action-button" id="selectSessionsFileBtn">Select Sessions File</button>
-        <button class="action-button" id="createNewSessionBtn">Create Your First Session</button>
+        <button class="action-button" id="createNewSessionBtn">Create Your First Session File</button>
+
       </div>
       
       <h2>Key Features</h2>
@@ -543,7 +666,7 @@ panel.webview.onDidReceiveMessage(
         </div>
         <div class="card">
           <h3>Custom Themes</h3>
-          <p>Personalize your terminal experience with custom color themes.</p>
+          <p>[Coming Soon..] Personalize your terminal experience with custom color themes.</p>
         </div>
         
       </div>
@@ -563,8 +686,8 @@ panel.webview.onDidReceiveMessage(
         });
         
         document.getElementById('createNewSessionBtn').addEventListener('click', () => {
-          vscode.postMessage({ command: 'addSession' });
-        });
+  vscode.postMessage({ command: 'createSessionsFile' });
+});
         
         document.getElementById('showDocsBtn').addEventListener('click', () => {
           vscode.postMessage({ command: 'showDocs' });

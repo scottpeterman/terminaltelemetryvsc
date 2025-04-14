@@ -1,0 +1,398 @@
+/* sessionEditor.css */
+:root {
+    --background-color: var(--vscode-editor-background);
+    --foreground-color: var(--vscode-editor-foreground);
+    --border-color: var(--vscode-panel-border);
+    --input-background: var(--vscode-input-background);
+    --input-foreground: var(--vscode-input-foreground);
+    --input-border: var(--vscode-input-border);
+    --button-background: var(--vscode-button-background);
+    --button-foreground: var(--vscode-button-foreground);
+    --button-hover-background: var(--vscode-button-hoverBackground);
+    --accent-color: var(--vscode-textLink-foreground);
+    --error-color: var(--vscode-editorError-foreground, #f14c4c);
+    --success-color: var(--vscode-testing-iconPassed, #23d18b);
+    --warning-color: var(--vscode-editorWarning-foreground, #cca700);
+}
+
+body, html {
+    height: 100%;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    font-family: var(--vscode-font-family);
+    background-color: var(--background-color);
+    color: var(--foreground-color);
+}
+
+.editor-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    max-width: 100%;
+}
+
+.toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 20px;
+    border-bottom: 1px solid var(--border-color);
+    background-color: var(--background-color);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.toolbar h1 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: normal;
+}
+
+.actions {
+    display: flex;
+    gap: 10px;
+}
+
+.content {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+.folder-list {
+    width: 300px;
+    border-right: 1px solid var(--border-color);
+    overflow-y: auto;
+    padding: 10px;
+}
+
+.session-editor {
+    flex: 1;
+    padding: 20px;
+    overflow-y: auto;
+}
+
+.placeholder {
+    color: var(--vscode-descriptionForeground);
+    font-style: italic;
+    text-align: center;
+    margin-top: 50px;
+}
+
+.loading {
+    text-align: center;
+    padding: 20px;
+    color: var(--vscode-descriptionForeground);
+}
+
+/* Buttons */
+.button {
+    background-color: var(--button-background);
+    color: var(--button-foreground);
+    border: none;
+    padding: 6px 12px;
+    border-radius: 2px;
+    cursor: pointer;
+    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.button:hover {
+    background-color: var(--button-hover-background);
+}
+
+.button.primary {
+    background-color: var(--accent-color);
+}
+
+.button.success {
+    background-color: var(--success-color);
+}
+
+.button.warning {
+    background-color: var(--warning-color);
+}
+
+.button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.icon-button {
+    background: none;
+    border: none;
+    color: var(--foreground-color);
+    cursor: pointer;
+    padding: 2px;
+    border-radius: 3px;
+}
+
+.icon-button:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Folder items */
+.folder-item {
+    margin-bottom: 15px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+}
+
+.folder-header {
+    padding: 8px 10px;
+    background-color: var(--button-background);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-radius: 4px 4px 0 0;
+}
+
+.folder-name {
+    margin-left: 5px;
+    font-weight: 500;
+}
+
+.folder-actions {
+    display: flex;
+    gap: 5px;
+}
+
+.session-list {
+    padding: 5px 10px;
+}
+
+.session-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 5px;
+    border-bottom: 1px solid var(--border-color);
+    cursor: pointer;
+}
+
+.session-item:last-child {
+    border-bottom: none;
+}
+
+.session-item:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+.session-item.selected {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.session-name {
+    margin-left: 8px;
+}
+
+.session-actions {
+    display: flex;
+    gap: 5px;
+    opacity: 0.5;
+}
+
+.session-item:hover .session-actions {
+    opacity: 1;
+}
+
+/* Form elements */
+.form-header {
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.form-header h2 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: normal;
+}
+
+.form-group {
+    margin-bottom: 15px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-size: 12px;
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+    width: 100%;
+    padding: 8px;
+    background-color: var(--input-background);
+    color: var(--input-foreground);
+    border: 1px solid var(--input-border);
+    border-radius: 2px;
+    font-family: var(--vscode-font-family);
+    font-size: 13px;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+    outline: 1px solid var(--accent-color);
+}
+
+.form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 20px;
+}
+
+/* Errors */
+.error-message {
+    color: var(--error-color);
+    margin-top: 4px;
+    font-size: 12px;
+}
+
+/* Toast notifications */
+.toast {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background-color: var(--background-color);
+    color: var(--foreground-color);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 10px 15px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 0.3s, transform 0.3s;
+}
+
+.toast.show {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.toast.success {
+    border-left: 4px solid var(--success-color);
+}
+
+.toast.error {
+    border-left: 4px solid var(--error-color);
+}
+
+.toast.warning {
+    border-left: 4px solid var(--warning-color);
+}
+/* Debug Modal */
+.debug-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.7);
+    z-index: 1000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.debug-modal {
+    background-color: var(--background-color);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    width: 80%;
+    max-width: 800px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.debug-modal-header {
+    padding: 10px;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.debug-modal-title {
+    font-size: 16px;
+    font-weight: bold;
+    margin: 0;
+}
+
+.debug-modal-close {
+    background: none;
+    border: none;
+    color: var(--foreground-color);
+    cursor: pointer;
+    font-size: 18px;
+}
+
+.debug-modal-content {
+    padding: 15px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.debug-modal-section {
+    margin-bottom: 15px;
+}
+
+.debug-modal-section h3 {
+    margin-top: 0;
+    margin-bottom: 5px;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 5px;
+}
+
+.debug-modal-section pre {
+    background-color: rgba(0, 0, 0, 0.1);
+    padding: 10px;
+    border-radius: 3px;
+    overflow-x: auto;
+    margin: 0;
+}
+
+.debug-modal-footer {
+    padding: 10px;
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    justify-content: flex-end;
+}
+
+.debug-modal-footer button {
+    margin-left: 10px;
+}
+
+/* Add this to sessionEditor.css */
+
+/* Add Session button */
+#addSessionBtn {
+    margin-right: 10px;
+}
+
+/* Folder selection dialog */
+.folder-select-dialog {
+    font-family: var(--vscode-font-family);
+}
+
+.folder-select-content h3 {
+    margin-top: 0;
+    margin-bottom: 10px;
+}
+
+.folder-select-content p {
+    margin-bottom: 10px;
+}

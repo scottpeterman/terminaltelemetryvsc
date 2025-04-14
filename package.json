@@ -2,9 +2,13 @@
   "name": "terminal-telemetry",
   "displayName": "Terminal Telemetry",
   "description": "VS Code extension for SSH terminal and telemetry visualization",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "engines": {
     "vscode": "^1.60.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/scottpeterman/terminaltelemetryvsc"
   },
   "categories": [
     "Other"
@@ -12,6 +16,17 @@
   "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
+    "customEditors": [
+      {
+        "viewType": "terminalTelemetry.sessionEditor",
+        "displayName": "SSH Sessions Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.{yaml,yml}"
+          }
+        ]
+      }
+    ],
     "configuration": {
       "title": "SSH Terminal",
       "properties": {
@@ -71,6 +86,18 @@
         "command": "terminal-telemetry.openTelemetryView",
         "title": "Open Telemetry Dashboard",
         "icon": "$(graph)"
+      },
+      {
+        "command": "terminal-telemetry.createSessionsFile",
+        "title": "SSH Terminal: Create New Sessions File",
+        "category": "SSH Terminal",
+        "icon": "$(file-add)"
+      },
+      {
+        "command": "terminal-telemetry.editSessionsFile",
+        "title": "SSH Terminal: Edit Current Sessions File",
+        "category": "SSH Terminal",
+        "icon": "$(edit)"
       }
     ],
     "viewsContainers": {
@@ -99,7 +126,7 @@
         },
         {
           "command": "terminal-telemetry.showHelp",
-          "when": "view == terminalTelemetrySessions", 
+          "when": "view == terminalTelemetrySessions",
           "group": "navigation"
         },
         {
@@ -114,6 +141,16 @@
         },
         {
           "command": "terminal-telemetry.selectSessionsFile",
+          "when": "view == terminalTelemetrySessions",
+          "group": "navigation"
+        },
+        {
+          "command": "terminal-telemetry.editSessionsFile",
+          "when": "view == terminalTelemetrySessions",
+          "group": "navigation"
+        },
+        {
+          "command": "terminal-telemetry.createSessionsFile",
           "when": "view == terminalTelemetrySessions",
           "group": "navigation"
         }
@@ -139,6 +176,16 @@
           "when": "view == terminalTelemetrySessions",
           "group": "inline"
         }
+      ],
+      "commandPalette": [
+        {
+          "command": "terminal-telemetry.createSessionsFile",
+          "group": "SSH Terminal"
+        },
+        {
+          "command": "terminal-telemetry.editSessionsFile",
+          "group": "SSH Terminal"
+        }
       ]
     }
   },
@@ -160,6 +207,7 @@
   },
   "dependencies": {
     "@types/ssh2": "^1.15.5",
+    "@vscode/codicons": "^0.0.35",
     "@vscode/webview-ui-toolkit": "^1.2.2",
     "js-yaml": "^4.1.0",
     "ssh2": "^1.16.0"

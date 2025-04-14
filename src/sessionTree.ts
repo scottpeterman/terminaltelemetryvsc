@@ -7,7 +7,7 @@ import { Session, SessionFolder } from './sessionTypes';
 function debugLog(message: string): void {
     console.log(`[DEBUG] ${message}`);
     // Also show in VS Code output channel
-    vscode.window.showInformationMessage(`[DEBUG] ${message}`);
+    // vscode.window.showInformationMessage(`[DEBUG] ${message}`);
 }
 
 function debugError(message: string, error?: any): void {
