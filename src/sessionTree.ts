@@ -60,24 +60,8 @@ export class SessionTreeItem extends BaseTreeItem {
         // Set context value for command enablement based on connection status
         this.contextValue = this.session.status === 'connected' ? 'connectedSession' : 'disconnectedSession';
         
-        // Set icon based on device type and connection status
-        let iconName = 'vm-outline';
-        
-        if (this.session.status === 'connected') {
-            iconName = 'vm-running';
-        } else {
-            // Customize icon based on device type
-            if (this.session.DeviceType?.toLowerCase().includes('cisco')) {
-                iconName = 'circuit-board';
-            } else if (this.session.DeviceType?.toLowerCase().includes('linux')) {
-                iconName = 'terminal-linux';
-            } else if (this.session.DeviceType?.toLowerCase().includes('hp') || 
-                       this.session.DeviceType?.toLowerCase().includes('aruba')) {
-                iconName = 'server';
-            }
-        }
-        
-        this.iconPath = new vscode.ThemeIcon(iconName);
+        // Use the enhanced icon selection function
+        this.iconPath = this.getIconForSession(this.session);
         
         // Set tooltip with detailed information
         this.tooltip = this.buildTooltip(this.session);
@@ -91,6 +75,80 @@ export class SessionTreeItem extends BaseTreeItem {
             title: 'Connect',
             arguments: [this.session.id]
         };
+    }
+    
+    private getIconForSession(session: Session): vscode.ThemeIcon {
+        // Default icon
+        let iconName = 'vm-outline';
+        
+        // Connected sessions use running icon
+        if (session.status === 'connected') {
+            return new vscode.ThemeIcon('vm-running');
+        }
+        
+        // Lowercase all fields for easier matching
+        const deviceType = (session.DeviceType || '').toLowerCase();
+        const vendor = (session.Vendor || '').toLowerCase();
+        const model = (session.Model || '').toLowerCase();
+        const hostname = (session.host || session.hostname || '').toLowerCase();
+        const name = (session.display_name || session.name || '').toLowerCase();
+        
+        // NETWORK VENDORS - Major networking equipment manufacturers
+        if (vendor.includes('cisco') || deviceType.includes('cisco') || hostname.includes('cisco')) {
+            iconName = 'circuit-board';
+        } else if (vendor.includes('arista') || hostname.includes('arista')) {
+            iconName = 'server-process';
+        } else if (vendor.includes('juniper') || hostname.includes('juniper')) {
+            iconName = 'dashboard';
+        } else if (vendor.includes('apc') || hostname.includes('apc')) {
+            iconName = 'plug';
+        } else if (vendor.includes('aruba') || hostname.includes('aruba')) {
+            iconName = 'radio-tower';
+        } else if (vendor.includes('fortinet') || hostname.includes('forti')) {
+            iconName = 'shield';
+        } else if (vendor.includes('palo alto') || hostname.includes('palo')) {
+            iconName = 'shield';
+        } 
+        // OS TYPES
+        else if (deviceType.includes('linux') || hostname.includes('linux')) {
+            iconName = 'terminal-linux';
+        } else if (deviceType.includes('windows')) {
+            iconName = 'terminal-windows';
+        }
+        // SWITCH PATTERNS - Common naming patterns for switches
+        else if (hostname.includes('-leaf-') || hostname.includes('leaf') || 
+                hostname.includes('-spine-') || hostname.includes('spine')) {
+            iconName = 'git-merge'; // Leaf/Spine architecture (switches)
+        } 
+        // NETWORK DEVICE MODEL PATTERNS
+        else if (model.includes('catalyst') || model.includes('nexus') || 
+                hostname.includes('catalyst') || hostname.includes('nexus')) {
+            iconName = 'git-merge'; // Cisco switch models
+        }
+        // DEVICE FUNCTION from hostname patterns
+        else if (hostname.includes('-sw') || hostname.includes('swl') || hostname.includes('switch')) {
+            iconName = 'git-merge'; // Switch devices
+        } else if (hostname.includes('-cr-') || model.includes('core') || hostname.includes('core')) {
+            iconName = 'circuit-board'; // Core routers/switches
+        } else if (hostname.includes('-fw') || hostname.includes('fwt') || hostname.includes('firewall')) {
+            iconName = 'shield'; // Firewalls
+        } else if (hostname.includes('-rtr') || hostname.includes('router')) {
+            iconName = 'remote'; // Routers
+        } else if (hostname.includes('-ups') || hostname.includes('pdu') || hostname.includes('power')) {
+            iconName = 'plug'; // UPS/Power devices
+        } else if (hostname.includes('-gs-') || hostname.includes('storage')) {
+            iconName = 'database'; // Storage devices
+        } else if (hostname.includes('-ion') || hostname.includes('vpn') || hostname.includes('iot')) {
+            iconName = 'broadcast'; // ION/VPN/IOT devices
+        } else if (hostname.includes('-ap') || hostname.includes('access-point')) {
+            iconName = 'radio-tower'; // Access points
+        } else if (hostname.includes('-lb') || hostname.includes('load-balancer')) {
+            iconName = 'split-horizontal'; // Load balancers
+        } else if (hostname.includes('-wlc') || hostname.includes('wireless')) {
+            iconName = 'wireless'; // Wireless controllers
+        }
+        
+        return new vscode.ThemeIcon(iconName);
     }
     
     private buildTooltip(session: Session): string {
@@ -124,8 +182,8 @@ export class SessionTreeItem extends BaseTreeItem {
         return details.join('\n');
     }
 }
+
 // Tree provider implementation
-// Add to sessionTree.ts
 export class SessionTreeProvider implements vscode.TreeDataProvider<BaseTreeItem> {
     private _onDidChangeTreeData: vscode.EventEmitter<BaseTreeItem | undefined | null | void> = new vscode.EventEmitter<BaseTreeItem | undefined | null | void>();
     readonly onDidChangeTreeData: vscode.Event<BaseTreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
@@ -152,7 +210,6 @@ export class SessionTreeProvider implements vscode.TreeDataProvider<BaseTreeItem
         return element;
     }
     
-
     getChildren(element?: BaseTreeItem): Thenable<BaseTreeItem[]> {
         try {
             if (!element) {

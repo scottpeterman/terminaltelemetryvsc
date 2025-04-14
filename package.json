@@ -2,7 +2,9 @@
   "name": "terminal-telemetry",
   "displayName": "Terminal Telemetry",
   "description": "VS Code extension for SSH terminal and telemetry visualization",
-  "version": "0.1.0",
+  "version": "0.1.1",
+  "publisher": "scottpeterman",
+  "icon": "images/icon.png",
   "engines": {
     "vscode": "^1.60.0"
   },
@@ -10,9 +12,22 @@
     "type": "git",
     "url": "https://github.com/scottpeterman/terminaltelemetryvsc"
   },
-  "categories": [
-    "Other"
+  "keywords": [
+    "ssh",
+    "terminal",
+    "telemetry",
+    "network",
+    "cisco",
+    "networking"
   ],
+  "categories": [
+    "Other",
+    "Visualization"
+  ],
+  "galleryBanner": {
+    "color": "#C80000",
+    "theme": "dark"
+  },
   "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
