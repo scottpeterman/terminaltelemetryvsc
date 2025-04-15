@@ -303,4 +303,24 @@ Potential improvements to the architecture include:
 
 ---
 
-This architecture provides a solid foundation that can be extended with additional features while maintaining a clean, maintainable design with clear separation of concerns and reliable UUID-based message routing.
+## Release Notes – Version 0.1.3
+
+### SSH Compatibility Fixes
+- Resolved several issues related to SSH authentication and terminal startup.
+- Improved handling of devices with non-standard SSH behavior.
+- Tested across Cisco IOS, Cisco NX-OS, Arista EOS, Ubuntu 22.04, and RHEL 9.5.
+
+### Terminal Theming per Tab
+- Terminal panes now support independent theme selection during an active session.
+- Useful for distinguishing between multiple open sessions.
+
+### Session Editor (Early Preview)
+- Introduced a graphical editor for existing session YAML files.
+- Sessions are organized by folder and editable through a form-based interface.
+- Current support is limited to editing existing sessions. Add/delete functionality will be added in a future release.
+
+### Webview Debugging
+- Added Eruda developer console to terminal and editor webviews.
+- Enables inspection and real-time debugging of JavaScript in environments where standard devtools are unavailable.
+
+---
