@@ -2,7 +2,7 @@
   "name": "terminal-telemetry",
   "displayName": "Terminal Telemetry",
   "description": "VS Code extension for SSH terminal and telemetry visualization",
-  "version": "0.1.1",
+  "version": "0.1.3",
   "publisher": "scottpeterman",
   "icon": "images/icon.png",
   "engines": {

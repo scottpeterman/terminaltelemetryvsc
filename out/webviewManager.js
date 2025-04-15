@@ -129,6 +129,13 @@ class WebviewManager {
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>Terminal: ${session.name || session.display_name}</title>
             <link rel="stylesheet" href="${xtermCssUri}">
+            <!-- Add Eruda for debugging -->
+        <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
+        <script>eruda.init({
+            tool: ['console', 'elements', 'network', 'resources', 'info'],
+            useShadowDom: true,
+            autoScale: true
+        });</script>
             <style>
                 body {
                     padding: 0;
@@ -398,15 +405,30 @@ class WebviewManager {
     /**
      * Show a quick pick to let the user select a terminal theme
      */
+    /**
+ * Show a quick pick to let the user select a terminal theme
+ */
+    /**
+     * Show a quick pick to let the user select a terminal theme
+     */
+    /**
+     * Show a quick pick to let the user select a terminal theme
+     */
     async showThemeSelector(connectionId) {
         const themes = [
             { label: 'VS Code Theme', description: 'Match VS Code current theme' },
             { label: 'Dark', description: 'Dark theme with white text' },
             { label: 'Light', description: 'Light theme with black text' },
-            { label: 'Cyberpunk', description: 'Dark theme with cyan text' },
-            { label: 'Green', description: 'Black background with green text' },
-            { label: 'Amber', description: 'Black background with amber text' },
-            { label: 'Neon', description: 'Black background with magenta text' }
+            { label: 'Cyberpunk', description: 'Classic cyberpunk with cyan text' },
+            { label: 'Green', description: 'Classic green terminal' },
+            { label: 'Amber', description: 'Classic amber terminal' },
+            { label: 'Neon', description: 'Black background with magenta text' },
+            // New themes with exact names from terminalThemes object
+            { label: 'SolarizedLight', description: 'Light theme with soft amber text' },
+            { label: 'CyberCyan', description: 'Cyberpunk theme with cyan accents' },
+            { label: 'CyberAmber', description: 'Cyberpunk theme with amber accents' },
+            { label: 'CyberDoom', description: 'Cyberpunk theme with red and orange accents' },
+            { label: 'TerminalGreen', description: 'Softer green terminal theme' }
         ];
         const selected = await vscode.window.showQuickPick(themes, {
             placeHolder: 'Select a terminal theme'

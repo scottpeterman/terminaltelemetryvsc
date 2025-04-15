@@ -6,11 +6,39 @@ import * as path from 'path';
 import * as os from 'os';
 import { getLogger } from './sessionLogger';
 
+// Enhanced interface with expanded options for better device compatibility
 export interface SSHConnectionConfig {
     host: string;
     port: number;
     username: string;
     password?: string;
+    privateKey?: string | Buffer;
+    privateKeyPath?: string;
+    passphrase?: string;
+    useAgent?: boolean;
+    agentPath?: string;
+    tryKeyboard?: boolean;
+    algorithms?: SSHAlgorithms;
+    authMethods?: string[]; // Order of methods to try
+    retryCount?: number;
+}
+
+// New interface for configurable algorithms to support older devices
+// Import types from ssh2
+import { 
+    KexAlgorithm, 
+    ServerHostKeyAlgorithm, 
+    CipherAlgorithm, 
+    MacAlgorithm, 
+    CompressionAlgorithm 
+} from 'ssh2';
+
+export interface SSHAlgorithms {
+    kex?: KexAlgorithm[];
+    serverHostKey?: ServerHostKeyAlgorithm[];
+    cipher?: CipherAlgorithm[];
+    hmac?: MacAlgorithm[];
+    compress?: CompressionAlgorithm[];
 }
 
 // String-based status to match your existing Session type
@@ -36,31 +64,86 @@ export class SSHManager {
     private dataSent: number = 0;
     private connectionId: string;
     private sessionId: string;
-    
+    private lastConfig: SSHConnectionConfig | null = null; // Store last config for retry
+    private useExecChannel: boolean = false; // Flag to indicate exec channel usage
+    private useExecTerminal: boolean = false; // Flag to indicate exec terminal usage
+    private retryCount: number = 0; // Retry count for connection attempts
+    private retryLimit: number = 3; // Maximum number of retries
+    private retryDelay: number = 2000; // Delay between retries in milliseconds
+    private retryConfig: SSHConnectionConfig | null = null; // Store retry config
+    private retryTimer: NodeJS.Timeout | null = null; // Timer for retrying connection
+    private retrying: boolean = false; // Flag to indicate if we are retrying
+
     constructor(webview: vscode.Webview, connectionId: string, sessionId: string) {
         this.webview = webview;
         this.connectionId = connectionId;
         this.sessionId = sessionId;
+        this.useExecChannel = false;
+    
         this.client = new ssh2.Client();
+    
+        // ✅ Unified connection setup for all auth methods
+        this.client.on('keyboard-interactive', (name, instructions, lang, prompts, finish) => {
+            this.logger.debug(`SSHManager [${this.connectionId}]: keyboard-interactive auth received`);
+            this.logger.debug(`Prompts: ${JSON.stringify(prompts, null, 2)}`);
+            const responses = prompts.map(() => this.lastConfig?.password || '');
+            finish(responses);
+        });
+    
+        this.client.on('ready', () => {
+            this.logger.info(`SSHManager [${this.connectionId}]: 'ready' event received. Authentication succeeded.`);
+            this.status = 'connected';
+            this.sendMessage('connectionStatus', {
+                status: 'connected',
+                message: 'Connection established'
+            });
+            this.sendMessage('output', {
+                data: '\r\nConnection established. Opening terminal...\r\n'
+            });
+            this.openShell();
+        });
+    
+        this.client.on('error', (err) => {
+            this.logger.error(`SSHManager [${this.connectionId}]: Connection error: ${err.message}`);
+            this.status = 'error';
+            this.sendMessage('connectionStatus', {
+                status: 'error',
+                message: `Connection error: ${err.message}`
+            });
+            this.sendMessage('output', {
+                data: `\r\nError: ${err.message}\r\n`
+            });
+        });
+    
+        this.client.on('close', () => {
+            this.logger.info(`SSHManager [${this.connectionId}]: Connection closed.`);
+            this.status = 'disconnected';
+            this.sendMessage('connectionStatus', {
+                status: 'disconnected',
+                message: 'Connection closed'
+            });
+            this.sendMessage('output', {
+                data: '\r\nConnection closed.\r\n'
+            });
+        });
+    
+        this.client.on('banner', (msg) => {
+            this.logger.debug(`SSHManager [${this.connectionId}]: SSH banner: ${msg}`);
+        });
+    
         this.logger.info(`SSHManager [${this.connectionId}]: Initialized for session ${this.sessionId}`);
-        this.setupEventHandlers();
-        
-        // Send initial welcome message
+    
         this.sendMessage('output', {
             data: 'SSH Terminal initialized. Waiting for connection...\r\n'
         });
-        
-        // Send initial connection status
+    
         this.sendMessage('connectionStatus', {
             status: 'disconnected',
             message: 'Terminal ready, waiting to connect'
         });
     }
     
-    /**
-     * Send a formatted message to the webview
-     */
-    private sendMessage(type: SSHMessageType, payload: any): void {
+    public sendMessage(type: SSHMessageType, payload: any): void {
         try {
             const message = {
                 connectionId: this.connectionId,
@@ -69,8 +152,7 @@ export class SSHManager {
                 payload: payload,
                 timestamp: Date.now()
             };
-            
-            // Log message type and basic info without full payload
+    
             if (type === 'output') {
                 const dataSize = payload.data ? payload.data.length : 0;
                 if (dataSize <= 50) {
@@ -82,14 +164,12 @@ export class SSHManager {
             } else {
                 this.logger.debug(`SSHManager [${this.connectionId}]: Sending message: ${type}`);
             }
-            
-            // Throttle large output messages to avoid overwhelming the UI
+    
             if (type === 'output' && payload.data && payload.data.length > 5000) {
                 const now = Date.now();
                 const timeSinceLastSend = now - this.lastSentTime;
-                
+    
                 if (timeSinceLastSend < 100) {
-                    // For large outputs, add a small delay to avoid UI hanging
                     setTimeout(() => {
                         this.webview.postMessage(message);
                         this.lastSentTime = Date.now();
@@ -97,69 +177,55 @@ export class SSHManager {
                     return;
                 }
             }
-            
-            // Normal send
+    
             this.webview.postMessage(message);
             this.lastSentTime = Date.now();
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
             this.logger.error(`SSHManager [${this.connectionId}]: Error sending message: ${errorMessage}`, error);
-            
-            // Try to notify the user
+    
             try {
                 vscode.window.showErrorMessage(`Error communicating with terminal: ${errorMessage}`);
             } catch (err) {
-                // Last resort - just log it
                 console.error(`Failed to send message or show error: ${errorMessage}`);
             }
         }
     }
     
-    /**
-     * Handle messages received from the webview
-     */
     public handleMessage(message: any): void {
-        // Validate message
         if (!message || !message.type) {
-            // Check for legacy message format
             if (message && message.command) {
                 this.handleLegacyMessage(message);
                 return;
             }
-            
+    
             this.logger.warn(`SSHManager [${this.connectionId}]: Received invalid message`);
             return;
         }
-        
-        // Check connection ID if present
+    
         if (message.connectionId && message.connectionId !== this.connectionId) {
             this.logger.warn(`SSHManager [${this.connectionId}]: Received message for wrong connection: ${message.connectionId}`);
             return;
         }
-        
-        // Log received message
+    
         this.logger.debug(`SSHManager [${this.connectionId}]: Received message: ${message.type}`);
-        
+    
         try {
             switch (message.type) {
                 case 'init':
-                    // Handle terminal initialization (dimensions only)
                     if (message.payload && message.payload.terminalDimensions) {
                         this.setDimensions(
                             message.payload.terminalDimensions.cols,
                             message.payload.terminalDimensions.rows
                         );
                     }
-                    
-                    // Send current status (don't connect yet)
                     this.sendMessage('connectionStatus', {
                         status: this.status,
                         message: `Terminal ready, waiting to connect`
                     });
                     break;
-                    
+    
                 case 'connect':
-                    // Handle explicit connect command with connection parameters
                     if (message.payload && message.payload.connectionConfig) {
                         this.logger.info(`SSHManager [${this.connectionId}]: Received connect command with config`);
                         this.connect(message.payload.connectionConfig);
@@ -170,16 +236,14 @@ export class SSHManager {
                         });
                     }
                     break;
-                    
+    
                 case 'input':
-                    // Forward input to SSH channel
                     if (message.payload && message.payload.data) {
                         this.writeData(message.payload.data);
                     }
                     break;
-                    
+    
                 case 'resize':
-                    // Update terminal dimensions
                     if (message.payload) {
                         this.setDimensions(
                             message.payload.cols,
@@ -187,77 +251,495 @@ export class SSHManager {
                         );
                     }
                     break;
-                    
+    
                 case 'disconnect':
-                    // Handle user-initiated disconnect
                     this.disconnect();
                     break;
-                    
+    
                 case 'ping':
-                    // Respond to ping with pong
                     this.sendMessage('pong', {
                         time: Date.now(),
                         status: this.status
                     });
                     break;
-                    
+    
                 case 'diagnostic':
-                    // Send diagnostic information
                     this.sendDiagnostics();
                     break;
-                    
+    
+                case 'retry-with-legacy':
+                    if (this.lastConfig) {
+                        this.retryWithLegacyAlgorithms();
+                    } else {
+                        this.sendMessage('error', {
+                            message: 'No previous connection to retry'
+                        });
+                    }
+                    break;
+    
                 default:
                     this.logger.warn(`SSHManager [${this.connectionId}]: Unhandled message type: ${message.type}`);
             }
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
             this.logger.error(`SSHManager [${this.connectionId}]: Error handling message: ${errorMessage}`, error);
-            
-            // Send error to terminal
+    
             this.sendMessage('error', {
                 message: `Failed to process command: ${errorMessage}`
             });
         }
     }
     
-    /**
-     * Handle legacy message format (for backward compatibility)
-     */
     private handleLegacyMessage(message: any): void {
         this.logger.debug(`SSHManager [${this.connectionId}]: Handling legacy message: ${message.command}`);
-        
+    
         switch (message.command) {
             case 'output':
-                // Already in terminal, no need to forward
                 break;
-                
             case 'input':
                 if (message.data) {
                     this.writeData(message.data);
                 }
                 break;
-                
             case 'resize':
                 if (message.cols && message.rows) {
                     this.setDimensions(message.cols, message.rows);
                 }
                 break;
-                
             case 'connect':
                 if (message.config) {
                     this.connect(message.config);
                 }
                 break;
-                
             case 'disconnect':
                 this.disconnect();
                 break;
-                
             default:
                 this.logger.warn(`SSHManager [${this.connectionId}]: Unhandled legacy command: ${message.command}`);
         }
     }
+    private openShell() {
+        this.logger.info(`SSHManager [${this.connectionId}]: Opening shell`);
+        
+        this.sendMessage('output', {
+            data: '\r\nOpening shell session...\r\n'
+        });
+        
+        // Standard shell request
+        const shellOptions: ssh2.PseudoTtyOptions = {
+            term: 'vt100',  // Simple terminal type for compatibility
+            cols: this.dimensions.cols,
+            rows: this.dimensions.rows
+        };
+        
+        this.client.shell(shellOptions, (err: Error | undefined, stream: ssh2.ClientChannel) => {
+            if (err) {
+                // Check specifically for this protocol error
+                if (err.message.includes('expected packet type 5, got 90') || 
+                    err.message.includes('Protocol error')) {
+                    
+                    this.logger.info(`SSHManager [${this.connectionId}]: Detected network device that doesn't support shell. Switching to direct exec channel.`);
+                    
+                    this.sendMessage('output', {
+                        data: `\r\nDetected a network device that doesn't support interactive shell.\r\nSwitching to alternative connection method...\r\n`
+                    });
+                    
+                    // Set flag to use exec channel for interactive terminal
+                    this.useExecChannel = true;
+                    
+                    // Open an interactive exec channel instead of a shell
+                    this.openExecTerminal();
+                    return;
+                }
+                
+                // Handle other shell errors
+                this.logger.error(`SSHManager [${this.connectionId}]: Failed to open shell: ${err.message}`, err);
+                this.sendMessage('output', {
+                    data: `\r\nFailed to open shell: ${err.message}\r\n`
+                });
+                return;
+            }
+            
+            // Standard shell opened successfully
+            this.channel = stream;
+            this.logger.info(`SSHManager [${this.connectionId}]: Shell opened successfully (${this.dimensions.cols}x${this.dimensions.rows})`);
+            
+            this.sendMessage('output', {
+                data: `\r\nShell session opened (${this.dimensions.cols}x${this.dimensions.rows})\r\n`
+            });
+            
+            // Update status
+            this.sendMessage('connectionStatus', {
+                status: 'connected',
+                message: 'Connected (shell)'
+            });
+            
+            // Set up stream event handlers
+            this.setupStreamHandlers(stream);
+        });
+    }
     
+    
+// Alternative terminal method for devices that don't support shell
+private openExecTerminal() {
+    if (!this.client) {
+        this.logger.error(`SSHManager [${this.connectionId}]: Cannot open exec terminal, client not connected`);
+        return;
+    }
+    
+    // For network devices, we'll start with a common terminal adjustment command
+    // and keep the exec channel open for interactive use
+    const terminalCmd = 'terminal length 0';
+    
+    this.logger.info(`SSHManager [${this.connectionId}]: Opening exec terminal with command: ${terminalCmd}`);
+    
+    // In exec mode, we still want a terminal-like experience, so we'll use a command that keeps the session open
+    this.client.exec(terminalCmd, {pty: {term: 'vt100', cols: this.dimensions.cols, rows: this.dimensions.rows}}, 
+        (execErr: Error | undefined, execStream: ssh2.ClientChannel) => {
+            if (execErr) {
+                this.logger.error(`SSHManager [${this.connectionId}]: Failed to open exec terminal: ${execErr.message}`, execErr);
+                this.sendMessage('output', {
+                    data: `\r\nFailed to open exec terminal: ${execErr.message}\r\n`
+                });
+                return;
+            }
+            
+            this.channel = execStream;
+            
+            // Set up handlers for the exec terminal
+            this.setupStreamHandlers(execStream);
+            
+            // Update status and send confirmation
+            this.logger.info(`SSHManager [${this.connectionId}]: Exec terminal opened (${this.dimensions.cols}x${this.dimensions.rows})`);
+            
+            this.sendMessage('connectionStatus', {
+                status: 'connected',
+                message: 'Connected (exec terminal)'
+            });
+            
+            this.sendMessage('output', {
+                data: `\r\nTerminal session opened using exec channel\r\n`
+            });
+        }
+    );
+}
+
+ // Unified method to handle input for both shell and exec-based terminals
+public sendInput(data: string) {
+    if (!this.client || !this.isConnected() || !this.channel) {
+        this.logger.error(`SSHManager [${this.connectionId}]: Cannot send input, not connected`);
+        return;
+    }
+    
+    // For both shell and exec channels, we just write directly
+    // The difference is in how we established the channel, not how we use it
+    this.channel.write(data);
+}
+
+    // Add method to setup initial connection
+
+    connect(config: SSHConnectionConfig) {
+        try {
+            // Save the config for potential retry
+            this.lastConfig = { ...config };
+            
+            // Reset terminal state
+            this.useExecChannel = false;
+            
+            this.status = 'connecting';
+            this.logger.info(`SSHManager [${this.connectionId}]: Connecting to ${config.host}:${config.port} as ${config.username}`);
+            
+            // Add detailed parameter logging (without sensitive data)
+            this.logger.info(
+                `SSHManager [${this.connectionId}]: Connection parameters - ` + 
+                `Host: ${config.host}, Port: ${config.port}, ` + 
+                `Username: ${config.username}, ` + 
+                `Password provided: ${config.password ? 'Yes' : 'No'}, ` +
+                `Private key provided: ${config.privateKey || config.privateKeyPath ? 'Yes' : 'No'}, ` +
+                `Using agent: ${config.useAgent ? 'Yes' : 'No'}, ` +
+                `Try keyboard-interactive: ${config.tryKeyboard ? 'Yes' : 'No'}`
+            );
+            
+            // Update connection status
+            this.sendMessage('connectionStatus', {
+                status: 'connecting',
+                message: `Connecting to ${config.host}:${config.port}`
+            });
+            
+            // Send informational message
+            this.sendMessage('output', {
+                data: `Connecting to ${config.host}:${config.port} as ${config.username}...\r\n`
+            });
+            
+            // Prepare SSH connection configuration
+            const connectConfig: ssh2.ConnectConfig = {
+                host: config.host,
+                port: config.port,
+                username: config.username,
+                password: config.password,
+                readyTimeout: 30000, // 30 second timeout for connection
+                keepaliveInterval: 30000, // Send keepalive every 30 seconds
+                tryKeyboard: true // Always enable keyboard-interactive
+            };
+            
+            // Add support for more algorithms to improve compatibility with network devices
+            this.configureAlgorithms(connectConfig, config);
+            
+            // Create new client instance
+            this.client = new ssh2.Client();
+            // Register **before** connect
+this.logger.debug(`SSHManager [${this.connectionId}]: Setting up keyboard-interactive handler`);
+
+this.client.on('keyboard-interactive', (name, instructions, lang, prompts, finish) => {
+    this.logger.debug(`SSHManager [${this.connectionId}]: keyboard-interactive auth received`);
+    this.logger.debug(`Prompts: ${JSON.stringify(prompts, null, 2)}`);
+
+    const responses = prompts.map(() => this.lastConfig?.password || '');
+    finish(responses);
+});
+
+this.client.on('ready', () => {
+    this.logger.debug(`SSHManager [${this.connectionId}]: 'ready' event received`);
+    // your shell startup logic here
+});
+
+this.client.on('error', (err) => {
+    this.logger.error(`SSHManager [${this.connectionId}]: Connection error: ${err.message}`);
+});
+
+
+            // Set up event handlers
+            // this.setupEventHandlers();
+            
+            // Set up error handler
+            // this.setupSimpleCryptoErrorHandler();
+            
+            // Set up enhanced authentication handlers
+            // this.enhanceAuthenticationHandlers();
+            
+            // Log the connection config (without sensitive data)
+            const debugConfig = {...connectConfig};
+            if (debugConfig.password) debugConfig.password = '***';
+            if (debugConfig.privateKey) debugConfig.privateKey = '***PRIVATE KEY***';
+            if (debugConfig.agent) debugConfig.agent = '***AGENT PATH***';
+            this.logger.info(`SSHManager [${this.connectionId}]: Connection config: ${JSON.stringify(debugConfig)}`);
+            
+            // Send authentication method info
+            this.sendMessage('output', {
+                data: `Using authentication methods: password...\r\n`
+            });
+            
+            // Set up the ready event handler to open shell or exec terminal
+            this.client.once('ready', () => {
+                this.logger.info(`SSHManager [${this.connectionId}]: Connection established`);
+                
+                this.sendMessage('output', {
+                    data: `\r\nConnection established. Opening terminal...\r\n`
+                });
+                
+                this.status = 'connected';
+                
+                // Try to open shell first (will fall back to exec terminal if needed)
+                this.openShell();
+            });
+            
+            // Connect to SSH server
+            this.logger.debug(`SSHManager [${this.connectionId}]: Setting up 'ready' handler...`);
+
+this.client.on('ready', () => {
+    this.logger.debug(`SSHManager [${this.connectionId}]: 'ready' event received.`);
+    // continue to open shell...
+});
+            this.logger.debug(`SSHManager [${this.connectionId}]: Invoking .connect with config:\n${JSON.stringify(config, null, 2)}`);
+
+            this.client.connect(connectConfig);
+        } catch (err: unknown) {
+            const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+            this.logger.error(`SSHManager [${this.connectionId}]: Error initiating connection: ${errorMessage}`, err);
+            
+            // Update status
+            this.status = 'error';
+            
+            // Send error messages
+            this.sendMessage('connectionStatus', {
+                status: 'error',
+                message: `Connection failed: ${errorMessage}`
+            });
+            
+            this.sendMessage('output', {
+                data: `\r\nError initiating connection: ${errorMessage}\r\n`
+            });
+            
+            // Show error in VS Code UI
+            vscode.window.showErrorMessage(`Failed to connect: ${errorMessage}`);
+        }
+    }
+    
+// Method to set up stream handlers (extracted for reuse)
+private setupStreamHandlers(stream: ssh2.ClientChannel) {
+    stream.on('data', (data: Buffer) => {
+        const dataStr = data.toString('utf8');
+        this.sendMessage('output', {
+            data: dataStr
+        });
+    });
+    
+    stream.stderr.on('data', (data: Buffer) => {
+        const dataStr = data.toString('utf8');
+        this.sendMessage('output', {
+            data: dataStr
+        });
+    });
+    
+    stream.on('close', () => {
+        this.logger.info(`SSHManager [${this.connectionId}]: Stream closed`);
+        this.sendMessage('output', {
+            data: `\r\nConnection closed\r\n`
+        });
+        
+        // Update status
+        this.status = 'disconnected';
+        this.sendMessage('connectionStatus', {
+            status: 'disconnected',
+            message: 'Disconnected'
+        });
+        
+        this.cleanup();
+    });
+}
+    public cleanup() {
+        /// need connection
+    }
+    
+    // Additional method to allow executing a single command when needed
+// This can be used for specific network commands outside the terminal flow
+public executeCommand(command: string, callback?: (err: Error | null, output: string) => void) {
+    if (!this.client || !this.isConnected()) {
+        const error = new Error('Not connected');
+        if (callback) callback(error, '');
+        return;
+    }
+    
+    // If we're already in an interactive session, just send to the current channel
+    if (this.channel && !this.useExecTerminal) {
+        this.channel.write(command + '\n');
+        if (callback) callback(null, 'Command sent to active channel');
+        return;
+    }
+    
+    // Otherwise, execute as a separate command
+    this.client.exec(command, (err: Error | undefined, stream: ssh2.ClientChannel) => {
+        if (err) {
+            this.logger.error(`SSHManager [${this.connectionId}]: Failed to execute command: ${err.message}`, err);
+            if (callback) callback(err, '');
+            return;
+        }
+        
+        let output = '';
+        
+        stream.on('data', (data: Buffer) => {
+            const dataStr = data.toString('utf8');
+            output += dataStr;
+        });
+        
+        stream.stderr.on('data', (data: Buffer) => {
+            const dataStr = data.toString('utf8');
+            output += dataStr;
+        });
+        
+        stream.on('close', () => {
+            this.logger.info(`SSHManager [${this.connectionId}]: Command execution complete`);
+            if (callback) callback(null, output);
+        });
+    });
+}
+
+    /**
+     * Configure SSH algorithms based on user configuration or defaults
+     * that support a broad range of devices including older network equipment
+     */
+
+    private configureAlgorithms(connectConfig: ssh2.ConnectConfig, userConfig: SSHConnectionConfig) {
+        if (userConfig.algorithms) {
+            // Use user-provided algorithms
+            connectConfig.algorithms = {};
+            
+            if (userConfig.algorithms.kex) {
+                connectConfig.algorithms.kex = userConfig.algorithms.kex;
+            }
+            
+            if (userConfig.algorithms.serverHostKey) {
+                connectConfig.algorithms.serverHostKey = userConfig.algorithms.serverHostKey;
+            }
+            
+            if (userConfig.algorithms.cipher) {
+                connectConfig.algorithms.cipher = userConfig.algorithms.cipher;
+            }
+            
+            if (userConfig.algorithms.hmac) {
+                connectConfig.algorithms.hmac = userConfig.algorithms.hmac;
+            }
+            
+            if (userConfig.algorithms.compress) {
+                connectConfig.algorithms.compress = userConfig.algorithms.compress;
+            }
+        } else {
+            // Use a safer subset of algorithms that works on most devices
+            // Specifically excluding problematic ones like chacha20-poly1305@openssh.com
+            connectConfig.algorithms = {
+                kex: [
+                    // Most widely supported key exchange algorithms
+                    "diffie-hellman-group14-sha1",
+                    "diffie-hellman-group-exchange-sha1",
+                    "diffie-hellman-group1-sha1",
+                    "diffie-hellman-group-exchange-sha256",
+                    "diffie-hellman-group14-sha256",
+                    "ecdh-sha2-nistp256"
+                    // Removing potentially problematic: curve25519-sha256, curve25519-sha256@libssh.org
+                ].map(algo => algo as KexAlgorithm),
+                
+                serverHostKey: [
+                    // Most widely supported host key types
+                    "ssh-rsa",
+                    "ssh-dss",
+                    "ecdsa-sha2-nistp256"
+                    // Removing potentially problematic: ssh-ed25519, rsa-sha2-256, rsa-sha2-512
+                ].map(algo => algo as ServerHostKeyAlgorithm),
+                
+                cipher: [
+                    // Most compatible ciphers first
+                    "aes128-cbc",
+                    "3des-cbc",
+                    "aes192-cbc",
+                    "aes256-cbc",
+                    "aes128-ctr",
+                    "aes192-ctr",
+                    "aes256-ctr"
+                    // Removing problematic: chacha20-poly1305@openssh.com, aes128-gcm@openssh.com, 
+                    // aes256-gcm@openssh.com, aes256-gcm, aes128-gcm
+                ].map(algo => algo as CipherAlgorithm),
+                
+                hmac: [
+                    // Most widely supported HMACs
+                    "hmac-sha1",
+                    "hmac-md5",
+                    "hmac-sha2-256",
+                    "hmac-sha2-512"
+                ].map(algo => algo as MacAlgorithm),
+                
+                compress: [
+                    "none",
+                    "zlib@openssh.com",
+                    "zlib"
+                ].map(algo => algo as CompressionAlgorithm)
+            };
+            
+            this.logger.info(`SSHManager [${this.connectionId}]: Using safe algorithm set for maximum compatibility`);
+        }
+    }
+    
+
+
     private setupEventHandlers() {
         // Use explicit typing for event handlers
         this.client.on('ready', () => {
@@ -278,30 +760,6 @@ export class SSHManager {
             this.openShell();
         });
         
-        this.client.on('error', (err: Error) => {
-            this.logger.error(`SSHManager [${this.connectionId}]: Connection error: ${err.message}`, err);
-            
-            // Update status
-            this.status = 'error';
-            
-            // Notify terminal of connection status change
-            this.sendMessage('connectionStatus', {
-                status: 'error',
-                message: `Connection error: ${err.message}`
-            });
-            
-            // Send error message to terminal
-            this.sendMessage('output', {
-                data: `\r\nConnection error: ${err.message}\r\n`
-            });
-            
-            // Show error in VS Code UI
-            vscode.window.showErrorMessage(`SSH error: ${err.message}`);
-            
-            this.disconnect();
-        });
-        
-        // Explicit callback parameter types
         this.client.on('close', () => {
             this.status = 'disconnected';
             this.logger.info(`SSHManager [${this.connectionId}]: Connection closed`);
@@ -347,225 +805,297 @@ export class SSHManager {
                 });
             }
         });
+        
+        // Add authentication debugging
+        this.setupAuthenticationDebugging();
     }
     
-    connect(config: SSHConnectionConfig) {
-        try {
-            this.status = 'connecting';
-            this.logger.info(`SSHManager [${this.connectionId}]: Connecting to ${config.host}:${config.port} as ${config.username}`);
-            
-            // Add detailed parameter logging (without sensitive data)
-            this.logger.info(
-                `SSHManager [${this.connectionId}]: Connection parameters - ` + 
-                `Host: ${config.host}, Port: ${config.port}, ` + 
-                `Username: ${config.username}, ` + 
-                `Password provided: ${config.password ? 'Yes' : 'No'}`
-            );
-            
-            // Update connection status
-            this.sendMessage('connectionStatus', {
-                status: 'connecting',
-                message: `Connecting to ${config.host}:${config.port}`
-            });
-            
-            // Send informational message
-            this.sendMessage('output', {
-                data: `Connecting to ${config.host}:${config.port} as ${config.username}...\r\n`
-            });
-            
-            const connectConfig: ssh2.ConnectConfig = {
-                host: config.host,
-                port: config.port,
-                username: config.username,
-                readyTimeout: 30000,
-                keepaliveInterval: 30000
-            };
-            
-            // Add debug callback with explicit type
-            const debugCallback = (message: string) => {
-                this.logger.debug(`SSH2 Debug [${this.connectionId}]: ${message}`);
-                // Optionally send debug info to terminal
-                // this.sendMessage('output', { data: `\r\n[DEBUG] ${message}\r\n` });
-            };
-            
-            // Always enable debug in development or when troubleshooting
-            // Comment out in production
-            connectConfig.debug = debugCallback;
-            
-            // Handle authentication
-            if (config.password) {
-                connectConfig.password = config.password;
-                this.logger.info(`SSHManager [${this.connectionId}]: Using password authentication`);
+    // 4. Authentication Debugging
+    private setupAuthenticationDebugging() {
+        // Add this to your constructor or setupEventHandlers method
+        
+        this.client.on('ready', () => {
+            this.logger.info(`SSHManager [${this.connectionId}]: Authentication succeeded`);
+        });
+        
+        this.client.on('tcp connection', () => {
+            this.logger.debug(`SSHManager [${this.connectionId}]: TCP connection established`);
+        });
+        
+        this.client.on('handshake' as any, (negotiated: any) => {
+            this.logger.info(`SSHManager [${this.connectionId}]: SSH handshake complete, algorithms negotiated`);
+            if (negotiated) {
+                const algorithms = {
+                    kex: negotiated.kex,
+                    hostKey: negotiated.serverHostKey,
+                    cipher_client: negotiated.cs?.cipher,
+                    cipher_server: negotiated.sc?.cipher,
+                    mac_client: negotiated.cs?.mac,
+                    mac_server: negotiated.sc?.mac,
+                    compress_client: negotiated.cs?.compress,
+                    compress_server: negotiated.sc?.compress
+                };
                 
-                this.sendMessage('output', {
-                    data: 'Using password authentication...\r\n'
-                });
-            } else {
-                this.logger.info(`SSHManager [${this.connectionId}]: No password provided, checking for key-based authentication`);
-                
-                this.sendMessage('output', {
-                    data: 'No password provided, trying key-based authentication...\r\n'
-                });
-                
-                // Default to ~/.ssh/id_rsa if no password provided
-                const defaultKeyPath = path.join(os.homedir(), '.ssh', 'id_rsa');
-                if (fs.existsSync(defaultKeyPath)) {
-                    try {
-                        connectConfig.privateKey = fs.readFileSync(defaultKeyPath);
-                        this.logger.info(`SSHManager [${this.connectionId}]: Using key from ${defaultKeyPath}`);
-                        
-                        this.sendMessage('output', {
-                            data: `Using SSH key from ${defaultKeyPath}...\r\n`
-                        });
-                    } catch (err) {
-                        const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-                        this.logger.error(`SSHManager [${this.connectionId}]: Failed to read key from ${defaultKeyPath}`, err);
-                        
-                        this.sendMessage('output', {
-                            data: `Failed to read SSH key: ${errorMessage}\r\n`
-                        });
+                this.logger.debug(`SSHManager [${this.connectionId}]: Negotiated algorithms: ${JSON.stringify(algorithms)}`);
+            }
+        });
+    }
+
+
+    private setupAuthenticationMethods(connectConfig: ssh2.ConnectConfig, userConfig: SSHConnectionConfig) {
+        // Determine which authentication methods to try and in what order
+        const authMethodsToTry = userConfig.authMethods || this.getDefaultAuthMethods();
+        
+        this.logger.info(`SSHManager [${this.connectionId}]: Authentication methods to try: ${authMethodsToTry.join(', ')}`);
+        
+        this.sendMessage('output', {
+            data: `Using authentication methods: ${authMethodsToTry.join(', ')}...\r\n`
+        });
+        
+        // Password authentication
+        if (authMethodsToTry.includes('password') && userConfig.password) {
+            connectConfig.password = userConfig.password;
+            this.logger.info(`SSHManager [${this.connectionId}]: Added password authentication`);
+        }
+        
+        // Private key authentication
+        if (authMethodsToTry.includes('publickey')) {
+            // Option 1: Key provided directly
+            if (userConfig.privateKey) {
+                connectConfig.privateKey = userConfig.privateKey;
+                if (userConfig.passphrase) {
+                    connectConfig.passphrase = userConfig.passphrase;
+                }
+                this.logger.info(`SSHManager [${this.connectionId}]: Added privateKey authentication`);
+            }
+            // Option 2: Key provided as file path
+            else if (userConfig.privateKeyPath) {
+                try {
+                    connectConfig.privateKey = fs.readFileSync(userConfig.privateKeyPath);
+                    if (userConfig.passphrase) {
+                        connectConfig.passphrase = userConfig.passphrase;
                     }
-                } else {
-                    this.logger.warn(`SSHManager [${this.connectionId}]: No password and no default key found`);
+                    this.logger.info(`SSHManager [${this.connectionId}]: Added privateKey from path: ${userConfig.privateKeyPath}`);
                     
                     this.sendMessage('output', {
-                        data: 'Warning: No password and no default SSH key found.\r\n'
+                        data: `Using SSH key from ${userConfig.privateKeyPath}...\r\n`
+                    });
+                } catch (err) {
+                    const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+                    this.logger.error(`SSHManager [${this.connectionId}]: Failed to read key from ${userConfig.privateKeyPath}`, err);
+                    
+                    this.sendMessage('output', {
+                        data: `Warning: Failed to read SSH key: ${errorMessage}\r\n`
                     });
                 }
             }
+            // Option 3: Try to find keys in default locations
+            else {
+                this.tryLoadDefaultKeys(connectConfig);
+            }
+        }
+        
+        // Agent authentication
+        if (authMethodsToTry.includes('agent') && userConfig.useAgent) {
+            connectConfig.agent = userConfig.agentPath || 
+                (process.platform === 'win32' 
+                    ? 'pageant'  // Use Pageant on Windows
+                    : process.env.SSH_AUTH_SOCK || '');  // Use SSH agent socket on Unix
             
-            // Log the connection config (without sensitive data)
-            const debugConfig = {...connectConfig};
-            if (debugConfig.password) debugConfig.password = '***';
-            if (debugConfig.privateKey) debugConfig.privateKey = '***PRIVATE KEY***';
-            this.logger.info(`SSHManager [${this.connectionId}]: Connection config: ${JSON.stringify(debugConfig)}`);
-            
-            // Connect to SSH server
-            this.client.connect(connectConfig);
-        } catch (err: unknown) {
-            const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-            this.logger.error(`SSHManager [${this.connectionId}]: Error initiating connection: ${errorMessage}`, err);
-            
-            // Update status
-            this.status = 'error';
-            
-            // Send error messages
-            this.sendMessage('connectionStatus', {
-                status: 'error',
-                message: `Connection failed: ${errorMessage}`
-            });
+            this.logger.info(`SSHManager [${this.connectionId}]: Added agent authentication: ${connectConfig.agent}`);
             
             this.sendMessage('output', {
-                data: `\r\nError initiating connection: ${errorMessage}\r\n`
+                data: `Using SSH agent: ${connectConfig.agent}...\r\n`
             });
+        }
+        
+        // Keyboard-interactive authentication (common for network devices)
+        if (authMethodsToTry.includes('keyboard-interactive') && userConfig.tryKeyboard) {
+            connectConfig.tryKeyboard = true;
             
-            // Show error in VS Code UI
-            vscode.window.showErrorMessage(`Failed to connect: ${errorMessage}`);
+            // If password is provided, use it for keyboard-interactive prompts
+            if (userConfig.password) {
+                // Custom authentication handler - using simple types for compatibility
+                connectConfig.authHandler = (methodsLeft: string[], partialSuccess: boolean, next: Function) => {
+                    if (methodsLeft.includes('keyboard-interactive')) {
+                        // Return an object with the handler
+                        return next({
+                            'keyboard-interactive': (
+                                name: string, 
+                                instructions: string, 
+                                lang: string, 
+                                prompts: Array<{prompt: string, echo: boolean}>, 
+                                finish: (responses: string[]) => void
+                            ) => {
+                                const responses: string[] = [];
+                                
+                                // For each prompt, use the password if it's asking for a password
+                                for (const prompt of prompts) {
+                                    if (prompt.prompt.toLowerCase().includes('password')) {
+                                        responses.push(userConfig.password || '');
+                                    } else {
+                                        responses.push(''); // Empty response for non-password prompts
+                                    }
+                                }
+                                
+                                finish(responses);
+                            }
+                        });
+                    }
+                    
+                    // Continue with default behavior
+                    return next();
+                };
+            }
+            
+            this.logger.info(`SSHManager [${this.connectionId}]: Added keyboard-interactive authentication`);
+            
+            this.sendMessage('output', {
+                data: `Using keyboard-interactive authentication${userConfig.password ? ' with provided password' : ''}...\r\n`
+            });
+        }
+        
+        // Warn if no authentication methods were configured
+        if (!connectConfig.password && !connectConfig.privateKey && !connectConfig.agent && !connectConfig.tryKeyboard) {
+            this.logger.warn(`SSHManager [${this.connectionId}]: No authentication methods configured`);
+            
+            this.sendMessage('output', {
+                data: `Warning: No authentication methods configured. Connection will likely fail.\r\n`
+            });
         }
     }
     
-    private openShell() {
-        this.logger.info(`SSHManager [${this.connectionId}]: Opening shell`);
+    /**
+     * Try to load SSH keys from default locations
+     */
+    private tryLoadDefaultKeys(connectConfig: ssh2.ConnectConfig) {
+        // Try multiple key types in common locations
+        const keyTypes = ['id_rsa', 'id_ed25519', 'id_ecdsa', 'id_dsa'];
+        let keyFound = false;
         
-        this.sendMessage('output', {
-            data: '\r\nOpening shell session...\r\n'
-        });
-        
-        // Explicitly type the shell options
-        const shellOptions: ssh2.PseudoTtyOptions = {
-            term: 'xterm-256color',
-            cols: this.dimensions.cols,
-            rows: this.dimensions.rows
-        };
-        
-        // Use explicit callback signature
-        this.client.shell(shellOptions, (err: Error | undefined, stream: ssh2.ClientChannel) => {
-            if (err) {
-                this.logger.error(`SSHManager [${this.connectionId}]: Failed to open shell: ${err.message}`, err);
-                
-                this.sendMessage('error', {
-                    message: `Failed to open shell: ${err.message}`
-                });
-                
-                this.sendMessage('output', {
-                    data: `\r\nFailed to open shell: ${err.message}\r\n`
-                });
-                return;
+        for (const keyType of keyTypes) {
+            const keyPath = path.join(os.homedir(), '.ssh', keyType);
+            if (fs.existsSync(keyPath)) {
+                try {
+                    connectConfig.privateKey = fs.readFileSync(keyPath);
+                    this.logger.info(`SSHManager [${this.connectionId}]: Using key from ${keyPath}`);
+                    
+                    this.sendMessage('output', {
+                        data: `Using SSH key from ${keyPath}...\r\n`
+                    });
+                    
+                    keyFound = true;
+                    break;
+                } catch (err) {
+                    const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+                    this.logger.error(`SSHManager [${this.connectionId}]: Failed to read key from ${keyPath}`, err);
+                }
             }
-            
-            this.channel = stream;
-            this.logger.info(`SSHManager [${this.connectionId}]: Shell opened successfully (${this.dimensions.cols}x${this.dimensions.rows})`);
+        }
+        
+        if (!keyFound) {
+            this.logger.warn(`SSHManager [${this.connectionId}]: No SSH keys found in .ssh directory`);
             
             this.sendMessage('output', {
-                data: `\r\nShell session opened (${this.dimensions.cols}x${this.dimensions.rows})\r\n`
+                data: `Warning: No SSH keys found in .ssh directory\r\n`
             });
-            
-            // Log received data size for debugging
-            let dataReceivedBytes = 0;
-            
-            // Handle data from server with explicit typing
-            stream.on('data', (data: Buffer) => {
-                dataReceivedBytes += data.length;
-                this.dataReceived += data.length;
-                
-                // Log every 1KB received to avoid excessive logging
-                if (dataReceivedBytes % 1024 < data.length) {
-                    this.logger.debug(`SSHManager [${this.connectionId}]: Received data chunk (total ${dataReceivedBytes} bytes)`);
-                }
-                
-                const dataStr = data.toString('utf8');
-                
-                // Send data to terminal
-                this.sendMessage('output', {
-                    data: dataStr
-                });
-                
-                // Keep the last 10 outputs in the buffer for debugging
-                this.outputBuffer.push(dataStr);
-                if (this.outputBuffer.length > 10) {
-                    this.outputBuffer.shift();
-                }
-            });
-            
-            // Handle stream close with explicit typing
-            stream.on('close', () => {
-                this.logger.info(`SSHManager [${this.connectionId}]: Shell session closed`);
-                
-                this.sendMessage('output', {
-                    data: '\r\nShell session closed.\r\n'
-                });
-                
-                // Log communication statistics
-                this.logger.info(`SSHManager [${this.connectionId}]: Communication stats - Sent: ${this.dataSent} bytes, Received: ${this.dataReceived} bytes`);
-                
-                this.sendMessage('output', {
-                    data: `\r\nCommunication stats - Sent: ${this.dataSent} bytes, Received: ${this.dataReceived} bytes\r\n`
-                });
-                
-                // Update status
-                this.status = 'disconnected';
-                this.sendMessage('connectionStatus', {
-                    status: 'disconnected',
-                    message: 'Shell session closed'
-                });
-                
-                this.disconnect();
-            });
-            
-            // Handle stream errors with explicit typing
-            stream.on('error', (err: Error) => {
-                this.logger.error(`SSHManager [${this.connectionId}]: Shell error: ${err.message}`, err);
-                
-                this.sendMessage('error', {
-                    message: `Shell error: ${err.message}`
-                });
-                
-                this.sendMessage('output', {
-                    data: `\r\nShell error: ${err.message}\r\n`
-                });
-            });
-        });
+        }
     }
+    
+    /**
+     * Get default authentication methods in preferred order
+     * NOTE: Order is important for network devices, which often
+     * expect a specific authentication sequence
+     */
+    private getDefaultAuthMethods(): string[] {
+        return ['password'];
+    }
+    
+    /**
+     * Retry connection with legacy algorithms for older network devices
+     */
+    private retryWithLegacyAlgorithms() {
+        if (!this.lastConfig) {
+            this.logger.error(`SSHManager [${this.connectionId}]: Cannot retry, no previous connection config`);
+            
+            this.sendMessage('output', {
+                data: `\r\nError: No previous connection to retry with legacy algorithms.\r\n`
+            });
+            return;
+        }
+        
+        this.logger.info(`SSHManager [${this.connectionId}]: Retrying with legacy algorithms for older network devices`);
+        
+        this.sendMessage('output', {
+            data: `\r\nRetrying connection with legacy algorithms for older network devices...\r\n`
+        });
+        
+        // Create a legacy-focused algorithm configuration
+        const legacyAlgorithms: SSHAlgorithms = {
+            kex: [
+                // Prioritize older algorithms first for legacy devices
+                'diffie-hellman-group1-sha1' as KexAlgorithm,
+                'diffie-hellman-group14-sha1' as KexAlgorithm,
+                'diffie-hellman-group-exchange-sha1' as KexAlgorithm,
+                // Include some newer ones as fallback
+                'diffie-hellman-group-exchange-sha256' as KexAlgorithm,
+                'diffie-hellman-group14-sha256' as KexAlgorithm,
+                'ecdh-sha2-nistp256' as KexAlgorithm
+            ],
+            serverHostKey: [
+                // Older key types first
+                'ssh-rsa' as ServerHostKeyAlgorithm,
+                'ssh-dss' as ServerHostKeyAlgorithm,
+                // Some newer ones as fallback
+                'ecdsa-sha2-nistp256' as ServerHostKeyAlgorithm,
+                'rsa-sha2-256' as ServerHostKeyAlgorithm
+            ],
+            cipher: [
+                // Older ciphers first
+                '3des-cbc' as CipherAlgorithm,
+                'aes128-cbc' as CipherAlgorithm,
+                'aes192-cbc' as CipherAlgorithm,
+                'aes256-cbc' as CipherAlgorithm,
+                // Some newer ones as fallback
+                'aes128-ctr' as CipherAlgorithm,
+                'aes192-ctr' as CipherAlgorithm,
+                'aes256-ctr' as CipherAlgorithm
+            ],
+            hmac: [
+                // Older MACs first
+                'hmac-sha1' as MacAlgorithm,
+                'hmac-md5' as MacAlgorithm,
+                'hmac-sha1-96' as MacAlgorithm,
+                'hmac-md5-96' as MacAlgorithm,
+                // Some newer ones as fallback
+                'hmac-sha2-256' as MacAlgorithm,
+                'hmac-sha2-512' as MacAlgorithm
+            ],
+            compress: [
+                'none' as CompressionAlgorithm,
+                'zlib@openssh.com' as CompressionAlgorithm,
+                'zlib' as CompressionAlgorithm
+            ]
+        };
+        
+        // Create a modified config with legacy algorithms
+        const legacyConfig: SSHConnectionConfig = {
+            ...this.lastConfig,
+            algorithms: legacyAlgorithms
+        };
+        
+        // Also prioritize password and keyboard-interactive auth
+        // as these are more common on older network devices
+        legacyConfig.authMethods = ['password', 'keyboard-interactive', 'publickey', 'agent'];
+        
+        // Add keyboard-interactive if not already enabled
+        legacyConfig.tryKeyboard = true;
+        
+        // Connect with legacy-optimized configuration
+        this.connect(legacyConfig);
+    }
+    
+
     
     writeData(data: string) {
         if (this.channel && this.status === 'connected') {
@@ -661,7 +1191,17 @@ export class SSHManager {
             dimensions: this.dimensions,
             bytesReceived: this.dataReceived,
             bytesSent: this.dataSent,
-            lastOutputs: this.outputBuffer.map(o => o.substring(0, 50) + (o.length > 50 ? '...' : ''))
+            lastOutputs: this.outputBuffer.map(o => o.substring(0, 50) + (o.length > 50 ? '...' : '')),
+            lastConfig: this.lastConfig ? {
+                host: this.lastConfig.host,
+                port: this.lastConfig.port,
+                username: this.lastConfig.username,
+                authMethods: this.lastConfig.authMethods || this.getDefaultAuthMethods(),
+                useAgent: this.lastConfig.useAgent || false,
+                tryKeyboard: this.lastConfig.tryKeyboard || false,
+                passwordProvided: !!this.lastConfig.password,
+                privateKeyProvided: !!(this.lastConfig.privateKey || this.lastConfig.privateKeyPath)
+            } : null
         };
     }
     
@@ -681,6 +1221,7 @@ export class SSHManager {
                   `Dimensions: ${this.dimensions.cols}x${this.dimensions.rows}\r\n` +
                   `Bytes sent: ${this.dataSent}\r\n` +
                   `Bytes received: ${this.dataReceived}\r\n` +
+                  `Authentication methods: ${diagnosticInfo.lastConfig?.authMethods?.join(', ') || 'none'}\r\n` +
                   '------------------------\r\n'
         });
     }
