@@ -138,20 +138,22 @@ class WebviewManager {
         });</script>
             <style>
                 body {
-                    padding: 0;
-                    margin: 0;
-                    width: 100%;
-                    height: 100vh;
-                    background-color: var(--vscode-editor-background);
-                    color: var(--vscode-editor-foreground);
-                    font-family: var(--vscode-editor-font-family);
-                }
+    padding: 0;
+    margin: 0;
+    width: 100%;
+    height: 100vh;
+    background-color: var(--vscode-editor-background);
+    color: var(--vscode-editor-foreground);
+    font-family: var(--vscode-editor-font-family);
+    overflow: hidden; /* Prevent body scrolling */
+}
                 #terminal-container {
-                    width: 100%;
-                    height: calc(100vh - 30px);
-                    padding: 0;
-                    box-sizing: border-box;
-                }
+                width: 100%;
+                height: calc(100vh - 36px); /* Slightly larger to account for header height */
+                padding: 8px; /* Add padding around terminal */
+                box-sizing: border-box; /* Include padding in size calculation */
+                overflow: hidden; /* Prevent outer scrollbars */
+            }
                 .connection-info {
                     font-family: var(--vscode-editor-font-family);
                     font-size: 12px;

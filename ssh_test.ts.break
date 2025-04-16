@@ -1,0 +1,239 @@
+// ssh-connector.js - CommonJS version
+const { Client } = require('ssh2');
+const readline = require('readline');
+
+class SSHConnector {
+    constructor() {
+        this.client = new Client();
+        this.status = 'disconnected';
+        this.shell = null;
+        this.config = null;
+        this.setupClientHandlers();
+    }
+
+    setupClientHandlers() {
+        // Set up keyboard-interactive authentication handler
+        this.client.on('keyboard-interactive', (name, instructions, lang, prompts, finish) => {
+            console.log('Server requested keyboard-interactive auth');
+            
+            // If we have prompts and a stored password, respond with the password
+            if (prompts && prompts.length > 0 && this.config?.password) {
+                // Create an array of responses, using the password for all prompts
+                const responses = prompts.map(() => this.config?.password || '');
+                finish(responses);
+            } else {
+                // No prompts or no password
+                finish([]);
+            }
+        });
+
+        // Handle SSH banner
+        this.client.on('banner', (message) => {
+            console.log('\n===== SERVER BANNER =====');
+            console.log(message);
+            console.log('========================\n');
+        });
+
+        // Handle client ready event
+        this.client.on('ready', () => {
+            console.log('Successfully connected!');
+            this.status = 'connected';
+            this.openShell();
+        });
+
+        // Handle connection errors
+        this.client.on('error', (err) => {
+            console.error(`Connection error: ${err.message}`);
+            this.status = 'error';
+            
+            // If error is about authentication methods, provide more info
+            if (err.message.includes('authentication')) {
+                console.error('Authentication failed. Check credentials or try different auth method.');
+            }
+        });
+
+        // Handle connection close
+        this.client.on('close', (hadError) => {
+            console.log(`Connection closed${hadError ? ' with error' : ''}.`);
+            this.status = 'disconnected';
+            this.shell = null;
+        });
+    }
+
+    connect(config) {
+        if (this.status === 'connected' || this.status === 'connecting') {
+            console.log('Already connected or connecting. Disconnect first.');
+            return;
+        }
+
+        this.config = { ...config };
+        this.status = 'connecting';
+        
+        console.log(`Attempting to connect to ${config.host}:${config.port} as ${config.username}...`);
+
+        // Configure connection options - prioritize keyboard-interactive auth
+        const connectConfig = {
+            host: config.host,
+            port: config.port,
+            username: config.username,
+            // Include password in config if provided
+            password: config.password,
+            // Always enable keyboard-interactive auth
+            tryKeyboard: config.tryKeyboard !== false,
+            readyTimeout: 30000,
+            debug: config.debug ? 
+                (message) => console.log(`[SSH2 DEBUG] ${message}`) : 
+                undefined
+        };
+
+        // Connect to the server
+        this.client.connect(connectConfig);
+    }
+
+    openShell() {
+        if (this.status !== 'connected') {
+            console.error('Cannot open shell: not connected');
+            return;
+        }
+
+        console.log('Opening shell session...');
+        
+        // Request a shell with common terminal type
+        this.client.shell({ term: 'vt100', cols: 80, rows: 24 }, (err, stream) => {
+            if (err) {
+                console.error(`Error opening shell: ${err.message}`);
+                
+                // If this is a network device that doesn't support shell
+                if (err.message.includes('expected packet type') || 
+                    err.message.includes('Protocol error')) {
+                    
+                    console.log('Network device detected. Trying alternative connection method...');
+                    this.openExecChannel();
+                    return;
+                }
+                
+                this.client.end();
+                return;
+            }
+
+            this.shell = stream;
+            console.log('Interactive shell established. Type commands or Ctrl+C to exit.');
+            console.log('-------------------------------------------------------');
+            
+            // Set up shell stream handlers
+            this.setupStreamHandlers(stream);
+        });
+    }
+    
+    openExecChannel() {
+        console.log('Trying to connect with exec channel instead of shell...');
+        
+        // For network devices, start with terminal adjustments
+        const terminalCmd = 'terminal length 0';
+        
+        this.client.exec(terminalCmd, { pty: { term: 'vt100', cols: 80, rows: 24 } }, 
+            (err, stream) => {
+                if (err) {
+                    console.error(`Error with exec channel: ${err.message}`);
+                    this.client.end();
+                    return;
+                }
+                
+                this.shell = stream;
+                console.log('Terminal session established via exec channel');
+                console.log('-------------------------------------------------------');
+                
+                // Set up the same handlers as shell
+                this.setupStreamHandlers(stream);
+            }
+        );
+    }
+    
+    setupStreamHandlers(stream) {
+        // Forward shell output to console
+        stream.on('data', (data) => {
+            process.stdout.write(data);
+        });
+
+        // Forward shell errors to console
+        stream.stderr.on('data', (data) => {
+            process.stderr.write(data);
+        });
+
+        // Handle shell close
+        stream.on('close', () => {
+            console.log('\nShell session closed.');
+            this.shell = null;
+            this.client.end();
+        });
+
+        // Create interface for user input
+        const rl = readline.createInterface({
+            input: process.stdin,
+            output: process.stdout,
+            terminal: true
+        });
+
+        // Send user input to shell
+        rl.on('line', (line) => {
+            if (this.shell) {
+                this.shell.write(`${line}\n`);
+            }
+        });
+
+        // Handle user Ctrl+C
+        process.on('SIGINT', () => {
+            console.log('\nClosing connection...');
+            rl.close();
+            if (this.shell) {
+                this.shell.close();
+            }
+            this.client.end();
+        });
+
+        // Handle readline close
+        rl.on('close', () => {
+            if (this.shell) {
+                this.shell.close();
+            }
+            this.client.end();
+        });
+    }
+    
+    disconnect() {
+        if (this.status === 'disconnected') {
+            console.log('Already disconnected');
+            return;
+        }
+        
+        console.log('Disconnecting...');
+        if (this.shell) {
+            this.shell.close();
+        }
+        this.client.end();
+    }
+    
+    getStatus() {
+        return this.status;
+    }
+}
+
+// When this file is run directly
+if (require.main === module) {
+    const connector = new SSHConnector();
+    
+    // Define your connection config
+    const config = {
+        host: 'switch1',
+        port: 22,
+        username: 'admin',
+        password: 'admin',
+        tryKeyboard: true,
+        debug: false
+    };
+    
+    // Connect to the server
+    connector.connect(config);
+}
+
+module.exports = SSHConnector;

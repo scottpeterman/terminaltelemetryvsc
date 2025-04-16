@@ -13,6 +13,8 @@ This document describes the architecture of the VS Code SSH Terminal extension, 
 7. [Debugging Support](#debugging-support)
 8. [Future Enhancements](#future-enhancements)
 
+### See release notes at bottom of document
+
 ## Architecture Overview
 
 The extension follows a modular architecture with clear separation of concerns:
@@ -213,6 +215,3 @@ Potential improvements to the architecture include:
    - Port forwarding capabilities
    - Multiple simultaneous shells within one connection
 
----
-
-This architecture provides a solid foundation that can be extended with additional features while maintaining a clean, maintainable design with clear separation of concerns and reliable UUID-based message routing.

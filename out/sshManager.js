@@ -118,8 +118,11 @@ class SSHManager {
                     return;
                 }
             }
-            this.webview.postMessage(message);
-            this.lastSentTime = Date.now();
+            // Disableing debug output to term for now
+            if (!JSON.stringify(message).includes('[DEBUG') && !JSON.stringify(message).includes('[AUTH-DEBUG')) {
+                this.webview.postMessage(message);
+                this.lastSentTime = Date.now();
+            }
         }
         catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -160,7 +163,7 @@ class SSHManager {
                 case 'connect':
                     if (message.payload && message.payload.connectionConfig) {
                         this.logger.info(`SSHManager [${this.connectionId}]: Received connect command with config`);
-                        this.connect(message.payload.connectionConfig);
+                        this.connect_to_host(message.payload.connectionConfig);
                     }
                     else {
                         this.logger.error(`SSHManager [${this.connectionId}]: Connect message missing connection config`);
@@ -230,7 +233,7 @@ class SSHManager {
                 break;
             case 'connect':
                 if (message.config) {
-                    this.connect(message.config);
+                    this.connect_to_host(message.config);
                 }
                 break;
             case 'disconnect':
@@ -331,23 +334,211 @@ class SSHManager {
         // The difference is in how we established the channel, not how we use it
         this.channel.write(data);
     }
-    // Add method to setup initial connection
-    connect(config) {
+    // Debug helpers to track authentication flow
+    // Helper function to print debug info to the terminal
+    debugToTerminal(message, level = 'info') {
+        // Log to the logger
+        if (level === 'error') {
+            this.logger.error(`AUTH-DEBUG [${this.connectionId}]: ${message}`);
+        }
+        else if (level === 'warn') {
+            this.logger.warn(`AUTH-DEBUG [${this.connectionId}]: ${message}`);
+        }
+        else {
+            this.logger.info(`AUTH-DEBUG [${this.connectionId}]: ${message}`);
+        }
+        // Also send to terminal with color coding
+        let prefix = '';
+        if (level === 'error') {
+            prefix = '\r\n[AUTH-DEBUG ERROR] ';
+        }
+        else if (level === 'warn') {
+            prefix = '\r\n[AUTH-DEBUG WARNING] ';
+        }
+        else {
+            prefix = '\r\n[AUTH-DEBUG] ';
+        }
+        this.sendMessage('output', {
+            data: `${prefix}${message}\r\n`
+        });
+    }
+    // Helper function to mask characters in sensitive data
+    maskChar(char) {
+        // Only show special characters, mask alphanumeric
+        if (/[a-zA-Z0-9]/.test(char)) {
+            return '*';
+        }
+        else {
+            return char;
+        }
+    }
+    // Enhanced keyboard-interactive handler with extensive debugging
+    setupKeyboardInteractiveHandler() {
+        // Counter for tracking authentication attempts
+        let keyboardInteractiveAttempts = 0;
+        this.sendMessage('output', {
+            data: '\r\n[DEBUG] Setting up keyboard-interactive handler\r\n'
+        });
+        // SSH2 specific typing fix with (this.client as any)
+        this.client.on('keyboard-interactive', (name, instructions, lang, prompts, finish) => {
+            keyboardInteractiveAttempts++;
+            // Send immediate debug info to terminal
+            this.sendMessage('output', {
+                data: `\r\n[DEBUG] ===== KEYBOARD-INTERACTIVE AUTH ATTEMPT #${keyboardInteractiveAttempts} =====\r\n`
+            });
+            this.sendMessage('output', {
+                data: `\r\n[DEBUG] Server: "${name || 'unknown'}", Lang: "${lang}"\r\n`
+            });
+            if (instructions && instructions.length > 0) {
+                this.sendMessage('output', {
+                    data: `\r\n[DEBUG] Instructions: "${instructions}"\r\n`
+                });
+            }
+            this.sendMessage('output', {
+                data: `\r\n[DEBUG] Received ${prompts.length} prompt(s)\r\n`
+            });
+            // Log all prompts and their attributes
+            prompts.forEach((prompt, i) => {
+                this.sendMessage('output', {
+                    data: `\r\n[DEBUG] Prompt ${i + 1}: "${prompt.prompt}" (echo: ${prompt.echo})\r\n`
+                });
+            });
+            // Prepare responses array
+            const responses = [];
+            // DEBUG: Password details (partial, for security)
+            if (this.lastConfig?.password) {
+                const pwd = this.lastConfig.password;
+                this.sendMessage('output', {
+                    data: `\r\n[DEBUG] Password available, length: ${pwd.length}, ` +
+                        `first char: "${this.maskChar(pwd.charAt(0))}", ` +
+                        `last char: "${this.maskChar(pwd.charAt(pwd.length - 1))}"\r\n`
+                });
+            }
+            else {
+                this.sendMessage('output', {
+                    data: `\r\n[DEBUG] WARNING: No password available!\r\n`
+                });
+            }
+            // Process each prompt
+            for (let i = 0; i < prompts.length; i++) {
+                const promptText = prompts[i].prompt.toLowerCase();
+                // Detect if this is a password prompt
+                const isPasswordPrompt = promptText.includes('password') ||
+                    !prompts[i].echo ||
+                    promptText.includes('認証') || // Japanese
+                    promptText.includes('密码') || // Chinese
+                    promptText.includes('contraseña'); // Spanish
+                if (isPasswordPrompt) {
+                    if (this.lastConfig?.password) {
+                        this.sendMessage('output', {
+                            data: `\r\n[DEBUG] Using password for prompt ${i + 1}\r\n`
+                        });
+                        responses.push(this.lastConfig.password);
+                    }
+                    else {
+                        this.sendMessage('output', {
+                            data: `\r\n[DEBUG] ERROR: No password available for prompt ${i + 1}!\r\n`
+                        });
+                        responses.push('');
+                    }
+                }
+                else {
+                    this.sendMessage('output', {
+                        data: `\r\n[DEBUG] Using empty string for non-password prompt ${i + 1}\r\n`
+                    });
+                    responses.push('');
+                }
+            }
+            // Report what we're about to send
+            this.sendMessage('output', {
+                data: `\r\n[DEBUG] Preparing to send ${responses.length} response(s)\r\n`
+            });
+            // Show response info (safely)
+            responses.forEach((resp, i) => {
+                this.sendMessage('output', {
+                    data: `\r\n[DEBUG] Response ${i + 1}: ${resp ? 'non-empty' : 'empty'}, length: ${resp.length}\r\n`
+                });
+            });
+            // Log before sending
+            this.sendMessage('output', {
+                data: `\r\n[DEBUG] About to call finish() with responses...\r\n`
+            });
+            // Try-catch to capture any errors
+            try {
+                // Send responses
+                finish(responses);
+                // Log after sending
+                this.sendMessage('output', {
+                    data: `\r\n[DEBUG] finish() called successfully\r\n`
+                });
+            }
+            catch (err) {
+                const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+                this.sendMessage('output', {
+                    data: `\r\n[DEBUG] ERROR in finish(): ${errorMessage}\r\n`
+                });
+            }
+            this.sendMessage('output', {
+                data: `\r\n[DEBUG] ===== END OF KEYBOARD-INTERACTIVE HANDLER =====\r\n`
+            });
+        });
+        // Add authentication result handlers
+        this.client.on('authenticated', () => {
+            this.sendMessage('output', {
+                data: `\r\n[DEBUG] SSH2 reports authentication SUCCESS\r\n`
+            });
+        });
+        // Monitor auth methods
+        this.client.on('authMethod', (methodName, methodsLeft) => {
+            this.sendMessage('output', {
+                data: `\r\n[DEBUG] Auth method tried: ${methodName}, methods left: ${methodsLeft.join(', ') || 'none'}\r\n`
+            });
+        });
+        // Monitor continue events
+        this.client.on('continue', (name, instructions) => {
+            this.sendMessage('output', {
+                data: `\r\n[DEBUG] Auth continue requested: ${name}, instructions: ${instructions || 'none'}\r\n`
+            });
+        });
+    }
+    // Add event monitors for authentication process 
+    setupAuthDebugHandlers() {
+        // Authentication events can be used to track auth flow
+        this.client.on('handshake', () => {
+            this.debugToTerminal('SSH handshake completed successfully');
+        });
+        // Track authentication method attempts
+        this.client.on('authMethod', (methodName, methodsLeft) => {
+            this.debugToTerminal(`Trying auth method: ${methodName}`);
+            this.debugToTerminal(`Methods left to try: ${methodsLeft.join(', ') || 'none'}`);
+        });
+        // When authentication was successful
+        this.client.on('ready', () => {
+            this.debugToTerminal('Authentication succeeded');
+        });
+        // When authentication failed
+        this.client.on('error', (err) => {
+            if (err.message.includes('authentication')) {
+                this.debugToTerminal(`Authentication error: ${err.message}`, 'error');
+            }
+        });
+    }
+    connect_to_host(config) {
         try {
             // Save the config for potential retry
             this.lastConfig = { ...config };
+            // Ensure tryKeyboard is set (with a default of true if not specified)
+            this.lastConfig.tryKeyboard = config.tryKeyboard !== undefined ? config.tryKeyboard : true;
             // Reset terminal state
             this.useExecChannel = false;
             this.status = 'connecting';
-            this.logger.info(`SSHManager [${this.connectionId}]: Connecting to ${config.host}:${config.port} as ${config.username}`);
-            // Add detailed parameter logging (without sensitive data)
-            this.logger.info(`SSHManager [${this.connectionId}]: Connection parameters - ` +
+            this.debugToTerminal(`Connecting to ${config.host}:${config.port} as ${config.username}`);
+            // Add detailed parameter logging
+            this.debugToTerminal(`Connection parameters - ` +
                 `Host: ${config.host}, Port: ${config.port}, ` +
                 `Username: ${config.username}, ` +
                 `Password provided: ${config.password ? 'Yes' : 'No'}, ` +
-                `Private key provided: ${config.privateKey || config.privateKeyPath ? 'Yes' : 'No'}, ` +
-                `Using agent: ${config.useAgent ? 'Yes' : 'No'}, ` +
-                `Try keyboard-interactive: ${config.tryKeyboard ? 'Yes' : 'No'}`);
+                `Try keyboard-interactive: ${this.lastConfig.tryKeyboard ? 'Yes' : 'No'}`);
             // Update connection status
             this.sendMessage('connectionStatus', {
                 status: 'connecting',
@@ -356,6 +547,66 @@ class SSHManager {
             // Send informational message
             this.sendMessage('output', {
                 data: `Connecting to ${config.host}:${config.port} as ${config.username}...\r\n`
+            });
+            // Create a fresh client instance 
+            this.client = new ssh2.Client();
+            // Set up debug handlers
+            this.setupAuthDebugHandlers();
+            // Set up keyboard interactive handler with debugging
+            this.setupKeyboardInteractiveHandler();
+            // Debug connection events
+            this.client.on('banner', (message) => {
+                this.debugToTerminal(`SSH banner received: ${message}`);
+                this.sendMessage('output', {
+                    data: `\r\n${message}\r\n`
+                });
+            });
+            // Set up ready event handler - using explicit type casting for SSH2
+            this.client.on('ready', () => {
+                this.debugToTerminal('Connection established successfully');
+                this.sendMessage('output', {
+                    data: `\r\nConnection established. Opening terminal...\r\n`
+                });
+                this.status = 'connected';
+                // Try to open shell first (will fall back to exec terminal if needed)
+                this.openShell();
+            });
+            // Set up error handler - using explicit type casting for SSH2
+            this.client.on('error', (err) => {
+                const errorMessage = err.message || 'Unknown error';
+                this.debugToTerminal(`Connection error: ${errorMessage}`, 'error');
+                // Update status and send error messages
+                this.status = 'error';
+                this.sendMessage('connectionStatus', {
+                    status: 'error',
+                    message: `Connection error: ${errorMessage}`
+                });
+                this.sendMessage('output', {
+                    data: `\r\nConnection error: ${errorMessage}\r\n`
+                });
+                // Check for specific auth errors
+                if (errorMessage.includes('authentication') || errorMessage.includes('auth')) {
+                    this.debugToTerminal('Authentication failed - checking configurations:', 'warn');
+                    this.debugToTerminal(`- Password provided: ${this.lastConfig?.password ? 'Yes' : 'No'}`);
+                    this.debugToTerminal(`- Keyboard-interactive enabled: ${this.lastConfig?.tryKeyboard ? 'Yes' : 'No'}`);
+                }
+            });
+            // Using type assertion for close event
+            this.client.on('close', (hadError) => {
+                this.debugToTerminal(`Connection closed${hadError ? ' with error' : ''}`);
+                // Update status
+                this.status = 'disconnected';
+                this.sendMessage('connectionStatus', {
+                    status: 'disconnected',
+                    message: `Connection closed${hadError ? ' with error' : ''}`
+                });
+                this.sendMessage('output', {
+                    data: `\r\nConnection closed${hadError ? ' with error' : ''}.\r\n`
+                });
+            });
+            // Set up end handler - using explicit type casting for SSH2
+            this.client.on('end', () => {
+                this.debugToTerminal('Connection ended');
             });
             // Prepare SSH connection configuration
             const connectConfig = {
@@ -367,66 +618,24 @@ class SSHManager {
                 keepaliveInterval: 30000,
                 tryKeyboard: true // Always enable keyboard-interactive
             };
-            // Add support for more algorithms to improve compatibility with network devices
-            this.configureAlgorithms(connectConfig, config);
-            // Create new client instance
-            this.client = new ssh2.Client();
-            // Register **before** connect
-            this.logger.debug(`SSHManager [${this.connectionId}]: Setting up keyboard-interactive handler`);
-            this.client.on('keyboard-interactive', (name, instructions, lang, prompts, finish) => {
-                this.logger.debug(`SSHManager [${this.connectionId}]: keyboard-interactive auth received`);
-                this.logger.debug(`Prompts: ${JSON.stringify(prompts, null, 2)}`);
-                const responses = prompts.map(() => this.lastConfig?.password || '');
-                finish(responses);
-            });
-            this.client.on('ready', () => {
-                this.logger.debug(`SSHManager [${this.connectionId}]: 'ready' event received`);
-                // your shell startup logic here
-            });
-            this.client.on('error', (err) => {
-                this.logger.error(`SSHManager [${this.connectionId}]: Connection error: ${err.message}`);
-            });
-            // Set up event handlers
-            // this.setupEventHandlers();
-            // Set up error handler
-            // this.setupSimpleCryptoErrorHandler();
-            // Set up enhanced authentication handlers
-            // this.enhanceAuthenticationHandlers();
-            // Log the connection config (without sensitive data)
-            const debugConfig = { ...connectConfig };
-            if (debugConfig.password)
-                debugConfig.password = '***';
-            if (debugConfig.privateKey)
-                debugConfig.privateKey = '***PRIVATE KEY***';
-            if (debugConfig.agent)
-                debugConfig.agent = '***AGENT PATH***';
-            this.logger.info(`SSHManager [${this.connectionId}]: Connection config: ${JSON.stringify(debugConfig)}`);
-            // Send authentication method info
+            // Debug the specific settings
+            this.debugToTerminal(`SSH connection config prepared with password: ${connectConfig.password ? 'Yes' : 'No'}`);
+            this.debugToTerminal(`SSH connection config prepared with tryKeyboard: ${connectConfig.tryKeyboard ? 'Yes' : 'No'}`);
+            // Configure algorithms if specified
+            this.configureAlgorithms(connectConfig, this.lastConfig);
+            // Send clear authentication method info
             this.sendMessage('output', {
-                data: `Using authentication methods: password...\r\n`
+                data: `Using password and keyboard-interactive authentication for ${config.username}@${config.host}...\r\n`
             });
-            // Set up the ready event handler to open shell or exec terminal
-            this.client.once('ready', () => {
-                this.logger.info(`SSHManager [${this.connectionId}]: Connection established`);
-                this.sendMessage('output', {
-                    data: `\r\nConnection established. Opening terminal...\r\n`
-                });
-                this.status = 'connected';
-                // Try to open shell first (will fall back to exec terminal if needed)
-                this.openShell();
-            });
-            // Connect to SSH server
-            this.logger.debug(`SSHManager [${this.connectionId}]: Setting up 'ready' handler...`);
-            this.client.on('ready', () => {
-                this.logger.debug(`SSHManager [${this.connectionId}]: 'ready' event received.`);
-                // continue to open shell...
-            });
-            this.logger.debug(`SSHManager [${this.connectionId}]: Invoking .connect with config:\n${JSON.stringify(config, null, 2)}`);
+            // Log the auth methods
+            this.debugToTerminal(`Authenticating with password: ${!!connectConfig.password}, keyboard-interactive: ${connectConfig.tryKeyboard}`);
+            // *** IMPORTANT: Now connect after all event handlers are registered ***
+            this.debugToTerminal('Initiating SSH2 connection...');
             this.client.connect(connectConfig);
         }
         catch (err) {
             const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-            this.logger.error(`SSHManager [${this.connectionId}]: Error initiating connection: ${errorMessage}`, err);
+            this.debugToTerminal(`Error initiating connection: ${errorMessage}`, 'error');
             // Update status
             this.status = 'error';
             // Send error messages
@@ -437,9 +646,22 @@ class SSHManager {
             this.sendMessage('output', {
                 data: `\r\nError initiating connection: ${errorMessage}\r\n`
             });
-            // Show error in VS Code UI
-            vscode.window.showErrorMessage(`Failed to connect: ${errorMessage}`);
         }
+    }
+    // Simple configuration method focused only on password and keyboard-interactive auth
+    setupPasswordAuth(connectConfig, userConfig) {
+        // Always set password if provided
+        if (userConfig.password) {
+            connectConfig.password = userConfig.password;
+            this.logger.info(`SSHManager [${this.connectionId}]: Added password authentication`);
+        }
+        // Always enable keyboard-interactive auth
+        connectConfig.tryKeyboard = true;
+        this.logger.info(`SSHManager [${this.connectionId}]: Enabled keyboard-interactive authentication`);
+        // Don't worry about private keys or agents
+        this.sendMessage('output', {
+            data: `Using password and keyboard-interactive authentication...\r\n`
+        });
     }
     // Method to set up stream handlers (extracted for reuse)
     setupStreamHandlers(stream) {
@@ -474,48 +696,45 @@ class SSHManager {
     }
     // Additional method to allow executing a single command when needed
     // This can be used for specific network commands outside the terminal flow
-    executeCommand(command, callback) {
-        if (!this.client || !this.isConnected()) {
-            const error = new Error('Not connected');
-            if (callback)
-                callback(error, '');
-            return;
-        }
-        // If we're already in an interactive session, just send to the current channel
-        if (this.channel && !this.useExecTerminal) {
-            this.channel.write(command + '\n');
-            if (callback)
-                callback(null, 'Command sent to active channel');
-            return;
-        }
-        // Otherwise, execute as a separate command
-        this.client.exec(command, (err, stream) => {
-            if (err) {
-                this.logger.error(`SSHManager [${this.connectionId}]: Failed to execute command: ${err.message}`, err);
-                if (callback)
-                    callback(err, '');
-                return;
-            }
-            let output = '';
-            stream.on('data', (data) => {
-                const dataStr = data.toString('utf8');
-                output += dataStr;
-            });
-            stream.stderr.on('data', (data) => {
-                const dataStr = data.toString('utf8');
-                output += dataStr;
-            });
-            stream.on('close', () => {
-                this.logger.info(`SSHManager [${this.connectionId}]: Command execution complete`);
-                if (callback)
-                    callback(null, output);
-            });
-        });
-    }
+    // public executeCommand(command: string, callback?: (err: Error | null, output: string) => void) {
+    //     if (!this.client || !this.isConnected()) {
+    //         const error = new Error('Not connected');
+    //         if (callback) callback(error, '');
+    //         return;
+    //     }
+    //     // If we're already in an interactive session, just send to the current channel
+    //     if (this.channel && !this.useExecTerminal) {
+    //         this.channel.write(command + '\n');
+    //         if (callback) callback(null, 'Command sent to active channel');
+    //         return;
+    //     }
+    //     // Otherwise, execute as a separate command
+    //     this.client.exec(command, (err: Error | undefined, stream: ssh2.ClientChannel) => {
+    //         if (err) {
+    //             this.logger.error(`SSHManager [${this.connectionId}]: Failed to execute command: ${err.message}`, err);
+    //             if (callback) callback(err, '');
+    //             return;
+    //         }
+    //         let output = '';
+    //         stream.on('data', (data: Buffer) => {
+    //             const dataStr = data.toString('utf8');
+    //             output += dataStr;
+    //         });
+    //         stream.stderr.on('data', (data: Buffer) => {
+    //             const dataStr = data.toString('utf8');
+    //             output += dataStr;
+    //         });
+    //         stream.on('close', () => {
+    //             this.logger.info(`SSHManager [${this.connectionId}]: Command execution complete`);
+    //             if (callback) callback(null, output);
+    //         });
+    //     });
+    // }
     /**
      * Configure SSH algorithms based on user configuration or defaults
      * that support a broad range of devices including older network equipment
      */
+    // Add this to your configureAlgorithms method in the sshManager.ts file
     configureAlgorithms(connectConfig, userConfig) {
         if (userConfig.algorithms) {
             // Use user-provided algorithms
@@ -537,44 +756,42 @@ class SSHManager {
             }
         }
         else {
-            // Use a safer subset of algorithms that works on most devices
-            // Specifically excluding problematic ones like chacha20-poly1305@openssh.com
+            // Use a conservative set of algorithms that are widely supported
+            // This avoids algorithms that might be unsupported by either client or server
             connectConfig.algorithms = {
                 kex: [
-                    // Most widely supported key exchange algorithms
+                    // Widely supported key exchange algorithms
+                    "diffie-hellman-group14-sha256",
+                    "diffie-hellman-group-exchange-sha256",
+                    "ecdh-sha2-nistp256",
                     "diffie-hellman-group14-sha1",
                     "diffie-hellman-group-exchange-sha1",
-                    "diffie-hellman-group1-sha1",
-                    "diffie-hellman-group-exchange-sha256",
-                    "diffie-hellman-group14-sha256",
-                    "ecdh-sha2-nistp256"
-                    // Removing potentially problematic: curve25519-sha256, curve25519-sha256@libssh.org
+                    "diffie-hellman-group1-sha1"
                 ].map(algo => algo),
                 serverHostKey: [
-                    // Most widely supported host key types
+                    // Include both modern and legacy options
+                    "rsa-sha2-256",
+                    "rsa-sha2-512",
                     "ssh-rsa",
-                    "ssh-dss",
-                    "ecdsa-sha2-nistp256"
-                    // Removing potentially problematic: ssh-ed25519, rsa-sha2-256, rsa-sha2-512
+                    "ecdsa-sha2-nistp256",
+                    "ssh-dss"
                 ].map(algo => algo),
                 cipher: [
-                    // Most compatible ciphers first
-                    "aes128-cbc",
-                    "3des-cbc",
-                    "aes192-cbc",
-                    "aes256-cbc",
+                    // Conservative cipher list - exclude chacha20-poly1305
                     "aes128-ctr",
                     "aes192-ctr",
-                    "aes256-ctr"
-                    // Removing problematic: chacha20-poly1305@openssh.com, aes128-gcm@openssh.com, 
-                    // aes256-gcm@openssh.com, aes256-gcm, aes128-gcm
+                    "aes256-ctr",
+                    "aes128-cbc",
+                    "aes192-cbc",
+                    "aes256-cbc",
+                    "3des-cbc"
                 ].map(algo => algo),
                 hmac: [
-                    // Most widely supported HMACs
-                    "hmac-sha1",
-                    "hmac-md5",
+                    // Widely supported MAC algorithms
                     "hmac-sha2-256",
-                    "hmac-sha2-512"
+                    "hmac-sha2-512",
+                    "hmac-sha1",
+                    "hmac-md5"
                 ].map(algo => algo),
                 compress: [
                     "none",
@@ -582,7 +799,7 @@ class SSHManager {
                     "zlib"
                 ].map(algo => algo)
             };
-            this.logger.info(`SSHManager [${this.connectionId}]: Using safe algorithm set for maximum compatibility`);
+            this.logger.info(`SSHManager [${this.connectionId}]: Using conservative algorithm set for maximum compatibility`);
         }
     }
     setupEventHandlers() {
@@ -668,42 +885,55 @@ class SSHManager {
         });
     }
     setupAuthenticationMethods(connectConfig, userConfig) {
-        // Determine which authentication methods to try and in what order
-        const authMethodsToTry = userConfig.authMethods || this.getDefaultAuthMethods();
+        // Set a default value for tryKeyboard if not provided
+        const effectiveConfig = {
+            ...userConfig,
+            tryKeyboard: userConfig.tryKeyboard !== undefined ? userConfig.tryKeyboard : true
+        };
+        // Log the effective configuration
+        this.logger.info(`SSHManager [${this.connectionId}]: setupAuthenticationMethods using effective config: ${JSON.stringify({
+            tryKeyboard: effectiveConfig.tryKeyboard,
+            authMethods: effectiveConfig.authMethods || 'using defaults',
+            hasPassword: !!effectiveConfig.password
+        })}`);
+        // Get auth methods to try, with safe fallback
+        const defaultMethods = this.getDefaultAuthMethods();
+        const authMethodsToTry = Array.isArray(effectiveConfig.authMethods) ? effectiveConfig.authMethods : defaultMethods;
         this.logger.info(`SSHManager [${this.connectionId}]: Authentication methods to try: ${authMethodsToTry.join(', ')}`);
+        // Send info to UI
         this.sendMessage('output', {
             data: `Using authentication methods: ${authMethodsToTry.join(', ')}...\r\n`
         });
-        // Password authentication
-        if (authMethodsToTry.includes('password') && userConfig.password) {
-            connectConfig.password = userConfig.password;
+        // Password authentication - with safe array check
+        if (Array.isArray(authMethodsToTry) && authMethodsToTry.includes('password') && effectiveConfig.password) {
+            connectConfig.password = effectiveConfig.password;
             this.logger.info(`SSHManager [${this.connectionId}]: Added password authentication`);
         }
-        // Private key authentication
-        if (authMethodsToTry.includes('publickey')) {
+        // Private key authentication - with safe array check
+        if (Array.isArray(authMethodsToTry) && authMethodsToTry.includes('publickey')) {
             // Option 1: Key provided directly
-            if (userConfig.privateKey) {
-                connectConfig.privateKey = userConfig.privateKey;
-                if (userConfig.passphrase) {
-                    connectConfig.passphrase = userConfig.passphrase;
+            if (effectiveConfig.privateKey) {
+                connectConfig.privateKey = effectiveConfig.privateKey;
+                if (effectiveConfig.passphrase) {
+                    connectConfig.passphrase = effectiveConfig.passphrase;
                 }
                 this.logger.info(`SSHManager [${this.connectionId}]: Added privateKey authentication`);
             }
             // Option 2: Key provided as file path
-            else if (userConfig.privateKeyPath) {
+            else if (effectiveConfig.privateKeyPath) {
                 try {
-                    connectConfig.privateKey = fs.readFileSync(userConfig.privateKeyPath);
-                    if (userConfig.passphrase) {
-                        connectConfig.passphrase = userConfig.passphrase;
+                    connectConfig.privateKey = fs.readFileSync(effectiveConfig.privateKeyPath);
+                    if (effectiveConfig.passphrase) {
+                        connectConfig.passphrase = effectiveConfig.passphrase;
                     }
-                    this.logger.info(`SSHManager [${this.connectionId}]: Added privateKey from path: ${userConfig.privateKeyPath}`);
+                    this.logger.info(`SSHManager [${this.connectionId}]: Added privateKey from path: ${effectiveConfig.privateKeyPath}`);
                     this.sendMessage('output', {
-                        data: `Using SSH key from ${userConfig.privateKeyPath}...\r\n`
+                        data: `Using SSH key from ${effectiveConfig.privateKeyPath}...\r\n`
                     });
                 }
                 catch (err) {
                     const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-                    this.logger.error(`SSHManager [${this.connectionId}]: Failed to read key from ${userConfig.privateKeyPath}`, err);
+                    this.logger.error(`SSHManager [${this.connectionId}]: Failed to read key from ${effectiveConfig.privateKeyPath}`, err);
                     this.sendMessage('output', {
                         data: `Warning: Failed to read SSH key: ${errorMessage}\r\n`
                     });
@@ -714,9 +944,9 @@ class SSHManager {
                 this.tryLoadDefaultKeys(connectConfig);
             }
         }
-        // Agent authentication
-        if (authMethodsToTry.includes('agent') && userConfig.useAgent) {
-            connectConfig.agent = userConfig.agentPath ||
+        // Agent authentication - with safe array check
+        if (Array.isArray(authMethodsToTry) && authMethodsToTry.includes('agent') && effectiveConfig.useAgent) {
+            connectConfig.agent = effectiveConfig.agentPath ||
                 (process.platform === 'win32'
                     ? 'pageant' // Use Pageant on Windows
                     : process.env.SSH_AUTH_SOCK || ''); // Use SSH agent socket on Unix
@@ -725,39 +955,65 @@ class SSHManager {
                 data: `Using SSH agent: ${connectConfig.agent}...\r\n`
             });
         }
-        // Keyboard-interactive authentication (common for network devices)
-        if (authMethodsToTry.includes('keyboard-interactive') && userConfig.tryKeyboard) {
+        // Keyboard-interactive authentication - with safe array check
+        if (Array.isArray(authMethodsToTry) && authMethodsToTry.includes('keyboard-interactive') && effectiveConfig.tryKeyboard) {
+            this.logger.info(`SSHManager [${this.connectionId}]: Setting up keyboard-interactive authentication`);
             connectConfig.tryKeyboard = true;
-            // If password is provided, use it for keyboard-interactive prompts
-            if (userConfig.password) {
-                // Custom authentication handler - using simple types for compatibility
+            // Set up the authHandler if a password is provided
+            if (effectiveConfig.password) {
+                this.logger.info(`SSHManager [${this.connectionId}]: Adding password-based authHandler for keyboard-interactive`);
+                // Define the auth handler
                 connectConfig.authHandler = (methodsLeft, partialSuccess, next) => {
-                    if (methodsLeft.includes('keyboard-interactive')) {
+                    this.logger.debug(`SSHManager [${this.connectionId}]: authHandler called with methods: ${JSON.stringify(methodsLeft)}`);
+                    console.log(`SSHManager [${this.connectionId}]: authHandler called with methods: ${JSON.stringify(methodsLeft)}`);
+                    console.log(methodsLeft);
+                    console.log(partialSuccess);
+                    if (Array.isArray(methodsLeft) && methodsLeft.includes('keyboard-interactive')) {
+                        this.logger.debug(`SSHManager [${this.connectionId}]: Returning keyboard-interactive handler`);
                         // Return an object with the handler
                         return next({
                             'keyboard-interactive': (name, instructions, lang, prompts, finish) => {
+                                this.logger.debug(`SSHManager [${this.connectionId}]: keyboard-interactive handler called with ${prompts.length} prompts`);
+                                // For debugging, log the prompts
+                                if (Array.isArray(prompts)) {
+                                    prompts.forEach((prompt, i) => {
+                                        this.logger.debug(`SSHManager [${this.connectionId}]: Prompt ${i + 1}: "${prompt.prompt}" (echo: ${prompt.echo})`);
+                                    });
+                                }
                                 const responses = [];
-                                // For each prompt, use the password if it's asking for a password
-                                for (const prompt of prompts) {
-                                    if (prompt.prompt.toLowerCase().includes('password')) {
-                                        responses.push(userConfig.password || '');
-                                    }
-                                    else {
-                                        responses.push(''); // Empty response for non-password prompts
+                                // For each prompt, use the password if it looks like a password prompt
+                                if (Array.isArray(prompts)) {
+                                    for (const prompt of prompts) {
+                                        if (prompt.prompt && prompt.prompt.toLowerCase().includes('password')) {
+                                            this.logger.debug(`SSHManager [${this.connectionId}]: Responding to password prompt with provided password`);
+                                            responses.push(effectiveConfig.password || '');
+                                        }
+                                        else {
+                                            this.logger.debug(`SSHManager [${this.connectionId}]: Responding to non-password prompt with empty string`);
+                                            responses.push(''); // Empty response for non-password prompts
+                                        }
                                     }
                                 }
+                                this.logger.debug(`SSHManager [${this.connectionId}]: Sending ${responses.length} responses to keyboard-interactive prompts`);
                                 finish(responses);
                             }
                         });
                     }
-                    // Continue with default behavior
+                    // Continue with default behavior for other methods
+                    this.logger.debug(`SSHManager [${this.connectionId}]: No keyboard-interactive in methods, continuing with default auth`);
                     return next();
                 };
             }
             this.logger.info(`SSHManager [${this.connectionId}]: Added keyboard-interactive authentication`);
             this.sendMessage('output', {
-                data: `Using keyboard-interactive authentication${userConfig.password ? ' with provided password' : ''}...\r\n`
+                data: `Using keyboard-interactive authentication${effectiveConfig.password ? ' with provided password' : ''}...\r\n`
             });
+        }
+        else {
+            // Add debug output to see why it's skipping keyboard-interactive
+            this.logger.info(`SSHManager [${this.connectionId}]: Skipping keyboard-interactive auth. ` +
+                `authMethodsToTry includes 'keyboard-interactive': ${Array.isArray(authMethodsToTry) && authMethodsToTry.includes('keyboard-interactive')}, ` +
+                `tryKeyboard: ${effectiveConfig.tryKeyboard}`);
         }
         // Warn if no authentication methods were configured
         if (!connectConfig.password && !connectConfig.privateKey && !connectConfig.agent && !connectConfig.tryKeyboard) {
@@ -799,13 +1055,11 @@ class SSHManager {
             });
         }
     }
-    /**
-     * Get default authentication methods in preferred order
-     * NOTE: Order is important for network devices, which often
-     * expect a specific authentication sequence
-     */
     getDefaultAuthMethods() {
-        return ['password'];
+        // Define default auth methods in preferred order
+        const methods = ['keyboard-interactive', 'password'];
+        this.logger.info(`SSHManager [${this.connectionId}]: Default auth methods: ${JSON.stringify(methods)}`);
+        return methods;
     }
     /**
      * Retry connection with legacy algorithms for older network devices
@@ -876,11 +1130,11 @@ class SSHManager {
         };
         // Also prioritize password and keyboard-interactive auth
         // as these are more common on older network devices
-        legacyConfig.authMethods = ['password', 'keyboard-interactive', 'publickey', 'agent'];
+        legacyConfig.authMethods = ['keyboard-interactive', 'password'];
         // Add keyboard-interactive if not already enabled
         legacyConfig.tryKeyboard = true;
         // Connect with legacy-optimized configuration
-        this.connect(legacyConfig);
+        this.connect_to_host(legacyConfig);
     }
     writeData(data) {
         if (this.channel && this.status === 'connected') {

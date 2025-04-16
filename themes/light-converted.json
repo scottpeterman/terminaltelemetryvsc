@@ -1,0 +1,93 @@
+{
+  "name": "Imported Custom Theme",
+  "type": "light",
+  "colors": {
+    "editor.background": "#FFFFFF",
+    "editor.foreground": "#1E293B",
+    "activityBar.background": "#F8FAFC",
+    "activityBar.foreground": "#1E293B",
+    "sideBar.background": "#F1F5F9",
+    "sideBar.foreground": "#1E293B",
+    "terminal.background": "#FFFFFF",
+    "terminal.foreground": "#000000",
+    "terminal.ansiBlack": "#000000",
+    "terminal.ansiRed": "#CC0000",
+    "terminal.ansiGreen": "#008800",
+    "terminal.ansiYellow": "#CC6600",
+    "terminal.ansiBlue": "#0000CC",
+    "terminal.ansiMagenta": "#CC00CC",
+    "terminal.ansiCyan": "#008888",
+    "terminal.ansiWhite": "#808080",
+    "terminal.ansiBrightBlack": "#666666",
+    "terminal.ansiBrightRed": "#FF0000",
+    "terminal.ansiBrightGreen": "#00CC00",
+    "terminal.ansiBrightYellow": "#FFCC00",
+    "terminal.ansiBrightBlue": "#0000FF",
+    "terminal.ansiBrightMagenta": "#FF00FF",
+    "terminal.ansiBrightCyan": "#00CCCC",
+    "terminal.ansiBrightWhite": "#FFFFFF",
+    "statusBar.background": "#F8FAFC",
+    "statusBar.foreground": "#1E293B",
+    "titleBar.activeBackground": "#FFFFFF",
+    "titleBar.activeForeground": "#1E293B",
+    "button.background": "#F8FAFC",
+    "button.foreground": "#1E293B",
+    "button.hoverBackground": "#F1F5F9",
+    "dropdown.background": "#F8FAFC",
+    "dropdown.foreground": "#1E293B",
+    "input.background": "#F8FAFC",
+    "input.foreground": "#1E293B",
+    "selection.background": "rgba(59, 130, 246, 0.1)",
+    "scrollbarSlider.background": "rgba(51, 65, 85, 0.05)",
+    "scrollbarSlider.hoverBackground": "#999999",
+    "list.activeSelectionBackground": "#NaN82NaN",
+    "list.activeSelectionForeground": "#000000",
+    "list.hoverBackground": "#181818",
+    "tab.activeBackground": "#F8FAFC",
+    "tab.activeForeground": "#1E293B",
+    "tab.inactiveBackground": "#FFFFFF",
+    "tab.inactiveForeground": "#1E293B"
+  },
+  "tokenColors": [
+    {
+      "scope": [
+        "comment"
+      ],
+      "settings": {
+        "foreground": "#666666"
+      }
+    },
+    {
+      "scope": [
+        "string"
+      ],
+      "settings": {
+        "foreground": "#008800"
+      }
+    },
+    {
+      "scope": [
+        "keyword"
+      ],
+      "settings": {
+        "foreground": "#0000CC"
+      }
+    },
+    {
+      "scope": [
+        "variable"
+      ],
+      "settings": {
+        "foreground": "#CC6600"
+      }
+    },
+    {
+      "scope": [
+        "entity.name.function"
+      ],
+      "settings": {
+        "foreground": "#008888"
+      }
+    }
+  ]
+}

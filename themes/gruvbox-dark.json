@@ -1,0 +1,115 @@
+{
+    "name": "Gruvbox Terminal",
+    "type": "dark",
+    "colors": {
+      "editor.background": "#282828",
+      "editor.foreground": "#EBDBB2",
+      "activityBar.background": "#3C3836",
+      "sideBar.background": "#1d2021",
+      "statusBar.background": "#3C3836",
+      "statusBar.foreground": "#EBDBB2",
+      "titleBar.activeBackground": "#282828",
+      "titleBar.activeForeground": "#EBDBB2",
+      "terminal.background": "#282828",
+      "terminal.foreground": "#EBDBB2",
+      "terminal.ansiBlack": "#282828",
+      "terminal.ansiRed": "#CC241D",
+      "terminal.ansiGreen": "#98971A",
+      "terminal.ansiYellow": "#D79921",
+      "terminal.ansiBlue": "#458588",
+      "terminal.ansiMagenta": "#B16286",
+      "terminal.ansiCyan": "#689D6A",
+      "terminal.ansiWhite": "#A89984",
+      "terminal.ansiBrightBlack": "#928374",
+      "terminal.ansiBrightRed": "#FB4934",
+      "terminal.ansiBrightGreen": "#B8BB26",
+      "terminal.ansiBrightYellow": "#FABD2F",
+      "terminal.ansiBrightBlue": "#83A598",
+      "terminal.ansiBrightMagenta": "#D3869B",
+      "terminal.ansiBrightCyan": "#8EC07C",
+      "terminal.ansiBrightWhite": "#EBDBB2",
+      "tab.activeBackground": "#3C3836",
+      "tab.inactiveBackground": "#282828",
+      "tab.activeForeground": "#EBDBB2",
+      "tab.inactiveForeground": "#A89984",
+      "editorGroup.border": "#B8BB26",
+      "panel.background": "#282828",
+      "panel.border": "#B8BB26",
+      "button.background": "#3C3836",
+      "button.hoverBackground": "#3C3836",
+      "button.foreground": "#EBDBB2",
+      "dropdown.background": "#3C3836",
+      "dropdown.foreground": "#EBDBB2",
+      "input.background": "#3C3836",
+      "input.foreground": "#EBDBB2",
+      "selection.background": "rgba(235, 219, 178, 0.2)",
+      "scrollbarSlider.background": "rgba(235, 219, 178, 0.1)",
+      "scrollbarSlider.hoverBackground": "rgba(235, 219, 178, 0.5)"
+    },
+    "tokenColors": [
+      {
+        "name": "Comments",
+        "scope": [
+          "comment",
+          "punctuation.definition.comment"
+        ],
+        "settings": {
+          "foreground": "#928374"
+        }
+      },
+      {
+        "name": "Strings",
+        "scope": [
+          "string",
+          "constant.other.symbol"
+        ],
+        "settings": {
+          "foreground": "#B8BB26"
+        }
+      },
+      {
+        "name": "Keywords",
+        "scope": [
+          "keyword",
+          "storage.type",
+          "storage.modifier"
+        ],
+        "settings": {
+          "foreground": "#83A598"
+        }
+      },
+      {
+        "name": "Variables",
+        "scope": [
+          "variable",
+          "variable.parameter",
+          "variable.other"
+        ],
+        "settings": {
+          "foreground": "#FABD2F"
+        }
+      },
+      {
+        "name": "Functions",
+        "scope": [
+          "entity.name.function",
+          "meta.function-call.generic",
+          "support.function"
+        ],
+        "settings": {
+          "foreground": "#8EC07C"
+        }
+      },
+      {
+        "name": "Constants",
+        "scope": [
+          "constant",
+          "constant.numeric",
+          "constant.language"
+        ],
+        "settings": {
+          "foreground": "#D3869B"
+        }
+      }
+    ]
+  }

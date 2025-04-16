@@ -1,0 +1,83 @@
+{
+  "name": "Imported Custom Theme",
+  "type": "dark",
+  "colors": {
+    "editor.background": "#0000A0",
+    "editor.foreground": "#FFFFFF",
+    "activityBar.background": "#C0C0C0",
+    "sideBar.background": "#000080",
+    "terminal.background": "#0000AA",
+    "terminal.foreground": "#FFFFFF",
+    "terminal.ansiBlack": "#000000",
+    "terminal.ansiRed": "#FF5555",
+    "terminal.ansiGreen": "#55FF55",
+    "terminal.ansiYellow": "#FFFF55",
+    "terminal.ansiBlue": "#5555FF",
+    "terminal.ansiMagenta": "#FF55FF",
+    "terminal.ansiCyan": "#55FFFF",
+    "terminal.ansiWhite": "#FFFFFF",
+    "terminal.ansiBrightBlack": "#555555",
+    "terminal.ansiBrightRed": "#FF5555",
+    "terminal.ansiBrightGreen": "#55FF55",
+    "terminal.ansiBrightYellow": "#FFFF55",
+    "terminal.ansiBrightBlue": "#5555FF",
+    "terminal.ansiBrightMagenta": "#FF55FF",
+    "terminal.ansiBrightCyan": "#55FFFF",
+    "terminal.ansiBrightWhite": "#FFFFFF",
+    "statusBar.background": "#C0C0C0",
+    "statusBar.foreground": "#FFFFFF",
+    "titleBar.activeBackground": "#0000A0",
+    "titleBar.activeForeground": "#FFFFFF",
+    "button.background": "#C0C0C0",
+    "button.hoverBackground": "#CC0000",
+    "dropdown.background": "#C0C0C0",
+    "dropdown.foreground": "#FFFFFF",
+    "input.background": "#C0C0C0",
+    "input.foreground": "#FFFFFF",
+    "selection.background": "#0000A0",
+    "scrollbarSlider.background": "rgba(255, 255, 255, 0.2)",
+    "scrollbarSlider.hoverBackground": "#777777"
+  },
+  "tokenColors": [
+    {
+      "scope": [
+        "comment"
+      ],
+      "settings": {
+        "foreground": "#555555"
+      }
+    },
+    {
+      "scope": [
+        "string"
+      ],
+      "settings": {
+        "foreground": "#55FF55"
+      }
+    },
+    {
+      "scope": [
+        "keyword"
+      ],
+      "settings": {
+        "foreground": "#5555FF"
+      }
+    },
+    {
+      "scope": [
+        "variable"
+      ],
+      "settings": {
+        "foreground": "#FFFF55"
+      }
+    },
+    {
+      "scope": [
+        "entity.name.function"
+      ],
+      "settings": {
+        "foreground": "#55FFFF"
+      }
+    }
+  ]
+}

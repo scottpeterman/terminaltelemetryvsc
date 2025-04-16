@@ -193,70 +193,93 @@ class SessionEditorProvider {
         
         <!-- Session editor form template -->
         <template id="sessionFormTemplate">
-            <div class="form-header">
-                <h2>{title}</h2>
-            </div>
-            <form id="sessionForm">
-                <input type="hidden" id="folderId" name="folderId" value="{folderId}">
-                <input type="hidden" id="sessionId" name="sessionId" value="{sessionId}">
-                
-                <div class="form-group">
-                    <label for="displayName">Display Name</label>
-                    <input type="text" id="displayName" name="display_name" value="{display_name}" required>
-                </div>
-                
-                <div class="form-group">
-                    <label for="host">Hostname / IP</label>
-                    <input type="text" id="host" name="host" value="{host}" required>
-                </div>
-                
-                <div class="form-group">
-                    <label for="port">Port</label>
-                    <input type="text" id="port" name="port" value="{port}" required>
-                </div>
-                
-                <div class="form-group">
-                    <label for="deviceType">Device Type</label>
-                    <select id="deviceType" name="DeviceType">
-                        <option value="Linux" {deviceType_Linux}>Linux</option>
-                        <option value="cisco_ios" {deviceType_cisco_ios}>Cisco IOS</option>
-                        <option value="hp_procurve" {deviceType_hp_procurve}>HP/Aruba</option>
-                        <option value="" {deviceType_other}>Other</option>
-                    </select>
-                </div>
-                
-                <div class="form-group">
-                    <label for="vendor">Vendor</label>
-                    <input type="text" id="vendor" name="Vendor" value="{Vendor}">
-                </div>
-                
-                <div class="form-group">
-                    <label for="model">Model</label>
-                    <input type="text" id="model" name="Model" value="{Model}">
-                </div>
-                
-                <div class="form-group">
-                    <label for="softwareVersion">Software Version</label>
-                    <input type="text" id="softwareVersion" name="SoftwareVersion" value="{SoftwareVersion}">
-                </div>
-                
-                <div class="form-group">
-                    <label for="serialNumber">Serial Number</label>
-                    <input type="text" id="serialNumber" name="SerialNumber" value="{SerialNumber}">
-                </div>
-                
-                <div class="form-group">
-                    <label for="credsid">Credential ID</label>
-                    <input type="text" id="credsid" name="credsid" value="{credsid}" required>
-                </div>
-                
-                <div class="form-actions">
-                    <button type="button" id="cancelBtn" class="button">Cancel</button>
-                    <button type="submit" id="submitBtn" class="button success">Save Session</button>
-                </div>
-            </form>
-        </template>
+    <div class="form-header">
+        <h2>{title}</h2>
+    </div>
+    <form id="sessionForm">
+        <input type="hidden" id="folderId" name="folderId" value="{folderId}">
+        <input type="hidden" id="sessionId" name="sessionId" value="{sessionId}">
         
+        <!-- Display Name - Full Width -->
+        <div class="form-group" id="displayNameField">
+            <label for="displayName">Display Name</label>
+            <input type="text" id="displayName" name="display_name" value="{display_name}" required>
+        </div>
+        
+        <!-- Two-column layout starts here -->
+        <div class="form-columns">
+            <!-- Left Column -->
+            <div class="form-column">
+                <div class="form-section">
+                    <h3 class="form-section-title">Connection Details</h3>
+                    
+                    <div class="form-group">
+                        <label for="host">Hostname / IP</label>
+                        <input type="text" id="host" name="host" value="{host}" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="port">Port</label>
+                        <input type="text" id="port" name="port" value="{port}" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="credsid">Credential ID</label>
+                        <input type="text" id="credsid" name="credsid" value="{credsid}" required>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Right Column -->
+            <div class="form-column">
+                <div class="form-section">
+                    <h3 class="form-section-title">Device Information</h3>
+                    
+                    <div class="form-group">
+                        <label for="deviceType">Device Type</label>
+                        <select id="deviceType" name="DeviceType">
+                            <option value="Linux" {deviceType_Linux}>Linux</option>
+                            <option value="cisco_ios" {deviceType_cisco_ios}>Cisco IOS</option>
+                            <option value="hp_procurve" {deviceType_hp_procurve}>HP/Aruba</option>
+                            <option value="" {deviceType_other}>Other</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="vendor">Vendor</label>
+                        <input type="text" id="vendor" name="Vendor" value="{Vendor}">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="model">Model</label>
+                        <input type="text" id="model" name="Model" value="{Model}">
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Additional Information - Full Width -->
+        <div class="form-section">
+            <h3 class="form-section-title">Additional Information</h3>
+            
+            <div class="form-group">
+                <label for="softwareVersion">Software Version</label>
+                <input type="text" id="softwareVersion" name="SoftwareVersion" value="{SoftwareVersion}">
+            </div>
+            
+            <div class="form-group">
+                <label for="serialNumber">Serial Number</label>
+                <input type="text" id="serialNumber" name="SerialNumber" value="{SerialNumber}">
+            </div>
+        </div>
+        
+        <div class="form-actions">
+            <button type="button" id="cancelBtn" class="button">Cancel</button>
+            <button type="submit" id="submitBtn" class="button success">Save Session</button>
+        </div>
+    </form>
+</template>
+
         <!-- Debugging Panel -->
         <div class="debug-panel" style="position: fixed; bottom: 0; right: 0; background: rgba(0,0,0,0.8); color: #fff; padding: 10px; z-index: 1000; max-width: 50%; max-height: 50%; overflow: auto; font-family: monospace; font-size: 12px; display: none;">
             <div>
